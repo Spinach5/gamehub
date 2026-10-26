@@ -290,7 +290,8 @@ mod tests {
         let wine = dir.path().join("wine");
         write_script(&wine, "#!/bin/sh\necho wine-9.0-test\n");
 
-        let runners = detect_from_candidates(&[wine.clone()], Duration::from_secs(1)).await;
+        let runners =
+            detect_from_candidates(std::slice::from_ref(&wine), Duration::from_secs(1)).await;
         assert_eq!(runners.len(), 1);
         assert_eq!(runners[0].version_string.as_deref(), Some("wine-9.0-test"));
         assert_eq!(runners[0].binary_path, wine);
