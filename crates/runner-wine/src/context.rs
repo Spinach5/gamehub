@@ -197,4 +197,42 @@ mod tests {
         let (program, _) = context.build_command(&PathBuf::from("/does/not/exist.exe"), &[]);
         assert_eq!(program, PathBuf::from("/opt/GE-Proton9-1/proton"));
     }
+
+    #[tokio::test]
+    async fn spawn_passes_base_env_and_extra_env() {
+        use std::fs;
+        use std::os::unix::fs::PermissionsExt;
+        use tempfile::tempdir;
+
+        let _exec_guard = crate::test_support::EXEC_LOCK.lock().await;
+        let dir = tempdir().unwrap();
+        let binary = dir.path().join("wine");
+        let output = dir.path().join("env.txt");
+        fs::write(
+            &binary,
+            format!(
+                "#!/bin/sh\nprintf '%s|%s|%s|%s\\n' \"$WINEPREFIX\" \"$WINEARCH\" \"$WINEDEBUG\" \"$EXTRA\" > '{}'\n",
+                output.display()
+            ),
+        )
+        .unwrap();
+        let mut permissions = fs::metadata(&binary).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&binary, permissions).unwrap();
+
+        let mut context = wine_context();
+        context.runner.binary_path = binary;
+        let mut extra = BTreeMap::new();
+        extra.insert("EXTRA".to_string(), "yes".to_string());
+
+        let mut child = context
+            .spawn(Path::new("game.exe"), &[], &extra)
+            .await
+            .unwrap();
+        let status = child.wait().await.unwrap();
+        assert!(status.success());
+
+        let written = fs::read_to_string(output).unwrap();
+        assert_eq!(written.trim(), "/data/prefixes/game|win64|-all|yes");
+    }
 }

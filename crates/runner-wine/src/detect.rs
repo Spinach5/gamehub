@@ -286,6 +286,7 @@ mod tests {
 
     #[tokio::test]
     async fn detect_reads_version_from_fake_wine() {
+        let _exec_guard = crate::test_support::EXEC_LOCK.lock().await;
         let dir = tempdir().unwrap();
         let wine = dir.path().join("wine");
         write_script(&wine, "#!/bin/sh\necho wine-9.0-test\n");
@@ -300,6 +301,7 @@ mod tests {
 
     #[tokio::test]
     async fn detect_skips_failing_probe() {
+        let _exec_guard = crate::test_support::EXEC_LOCK.lock().await;
         let dir = tempdir().unwrap();
         let wine = dir.path().join("wine");
         write_script(&wine, "#!/bin/sh\necho boom >&2\nexit 3\n");
@@ -310,6 +312,7 @@ mod tests {
 
     #[tokio::test]
     async fn detect_times_out_hung_probe() {
+        let _exec_guard = crate::test_support::EXEC_LOCK.lock().await;
         let dir = tempdir().unwrap();
         let wine = dir.path().join("wine");
         write_script(&wine, "#!/bin/sh\nsleep 5\n");

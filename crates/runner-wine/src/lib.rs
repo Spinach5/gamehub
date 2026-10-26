@@ -8,3 +8,12 @@ pub use detect::{
     validate_proton_dir, verify_runner,
 };
 pub use error::RunnerError;
+
+#[cfg(test)]
+pub(crate) mod test_support {
+    use tokio::sync::Mutex;
+
+    /// Executing a freshly written script while a concurrent fork still holds
+    /// its write fd yields ETXTBSY; tests that spawn scripts serialize here.
+    pub(crate) static EXEC_LOCK: Mutex<()> = Mutex::const_new(());
+}
