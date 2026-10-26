@@ -45,10 +45,12 @@ jobs:
           - arch: x86_64
             runner: ubuntu-24.04
             nfpm_arch: amd64
+            nfpm_tool_arch: x86_64
             appimage_arch: x86_64
           - arch: aarch64
             runner: ubuntu-24.04-arm
             nfpm_arch: arm64
+            nfpm_tool_arch: arm64
             appimage_arch: aarch64
     steps:
       - name: Install build and packaging dependencies
@@ -104,12 +106,14 @@ jobs:
           PKG_ARCH_LABEL: ${{ matrix.arch }}
           PKG_MAINTAINER: ${{ github.repository_owner }} <noreply@github.com>
           PKG_HOMEPAGE: ${{ github.server_url }}/${{ github.repository }}
-          NFPM_ARCH: ${{ matrix.nfpm_arch }}
+          NFPM_TOOL_ARCH: ${{ matrix.nfpm_tool_arch }}
         run: |
           set -euo pipefail
+          # Release assets use GoReleaser arch labels (x86_64, arm64), not
+          # package arch labels (amd64, arm64).
           curl -fsSL --retry 5 --retry-all-errors --retry-delay 2 \
             -o /tmp/nfpm.tar.gz \
-            "https://github.com/goreleaser/nfpm/releases/download/v${NFPM_VERSION}/nfpm_${NFPM_VERSION}_Linux_${NFPM_ARCH}.tar.gz"
+            "https://github.com/goreleaser/nfpm/releases/download/v${NFPM_VERSION}/nfpm_${NFPM_VERSION}_Linux_${NFPM_TOOL_ARCH}.tar.gz"
           tar -xzf /tmp/nfpm.tar.gz -C /usr/local/bin nfpm
           nfpm --version
           nfpm package -f packaging/nfpm.yaml -p deb -t "dist/${BINARY}_${PKG_VERSION}_${PKG_ARCH_LABEL}.deb"
@@ -189,6 +193,8 @@ jobs:
         run: |
           set +e
           appimage="$(readlink -f "dist/${BINARY}_${VERSION}_${ARCH_LABEL}.AppImage")"
+          file "$appimage"
+          xvfb-run -a sh -c 'echo "xvfb-run ok, DISPLAY=$DISPLAY"' || echo "xvfb-run sanity check exited with $?"
           APPIMAGE_EXTRACT_AND_RUN=1 xvfb-run -a timeout 25s "$appimage" > /tmp/gamehub-smoke.log 2>&1
           rc=$?
           set -e
@@ -196,7 +202,15 @@ jobs:
           if [ "$rc" -eq 124 ]; then
             echo "Smoke test OK: gameHub stayed alive for 25s."
           else
-            echo "::warning::gameHub exited with code $rc during the smoke test; check the log above."
+            tmp="$(mktemp -d)"
+            ( cd "$tmp" && APPIMAGE_EXTRACT_AND_RUN=1 "$appimage" --appimage-extract >/dev/null 2>&1 )
+            file "$tmp/squashfs-root/usr/bin/${BINARY}" || true
+            ldd "$tmp/squashfs-root/usr/bin/${BINARY}" || true
+            rm -rf "$tmp"
+            # Surface the failure in an annotation so it is visible without
+            # expanding the raw job log.
+            detail="$( { cat /tmp/gamehub-smoke.log 2>/dev/null; echo; ldd --version 2>&1 | head -n1; } | tr '\n' ' ' | tr -d '\r' | head -c 1500 | sed 's/%/%25/g' )"
+            echo "::warning title=Smoke test exit ${rc}::${detail}"
           fi
 
       - uses: actions/upload-artifact@v4
