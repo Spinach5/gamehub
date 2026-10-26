@@ -673,7 +673,94 @@ impl App {
                 }
                 iced::Task::none()
             }
-            Message::Launch(_) | Message::LaunchFinished { .. } => iced::Task::none(),
+            Message::Launch(game_id) => {
+                if self
+                    .draft
+                    .as_ref()
+                    .is_some_and(|draft| draft.id == game_id && draft.is_new)
+                {
+                    self.error = Some(AppError::new("请先保存游戏，再启动"));
+                    return iced::Task::none();
+                }
+                if self.running.contains_key(&game_id) {
+                    self.error = Some(AppError::new("该游戏已在运行"));
+                    return iced::Task::none();
+                }
+                let game = match self.game_for_actions(game_id) {
+                    Ok(game) => game,
+                    Err(error) => {
+                        self.error = Some(AppError::new(error));
+                        return iced::Task::none();
+                    }
+                };
+                let prefix_plan = match self.prefix_plan_for(&game) {
+                    Ok(plan) => plan,
+                    Err(error) => {
+                        self.error = Some(error);
+                        return iced::Task::none();
+                    }
+                };
+                if self.running.values().any(|path| path == &prefix_plan.path) {
+                    self.error = Some(AppError::new("同一 Prefix 已有游戏在运行，请等待其退出"));
+                    return iced::Task::none();
+                }
+
+                let Some(db) = self.db.clone() else {
+                    self.error = Some(AppError::new("数据库不可用"));
+                    return iced::Task::none();
+                };
+                let global_env = match crate::draft::env_rows_to_map(&self.settings.global_env_rows)
+                {
+                    Ok(env) => env,
+                    Err(error) => {
+                        self.error =
+                            Some(AppError::new("全局环境变量无效").with_detail(error.to_string()));
+                        return iced::Task::none();
+                    }
+                };
+
+                let request = launch::LaunchRequest {
+                    game,
+                    runner: prefix_plan.runner.clone(),
+                    session: self.session,
+                    global_env,
+                    inherited_env: Self::inherited_env(),
+                    steam_compat_client: self.paths.steam_compat_client.clone(),
+                    default_prefix_root: self.settings.prefix_root.clone(),
+                    gamescope_path: self.gamescope_path.clone(),
+                };
+
+                self.running.insert(game_id, prefix_plan.path);
+                iced::Task::perform(tasks::launch_game(db, request), move |result| {
+                    Message::LaunchFinished { game_id, result }
+                })
+            }
+            Message::LaunchFinished { game_id, result } => {
+                self.running.remove(&game_id);
+                match result {
+                    Ok(outcome) => {
+                        let timestamp = chrono::Utc::now().timestamp();
+                        if let Some(game) = self.games.iter_mut().find(|game| game.id == game_id) {
+                            game.last_played_at = Some(timestamp);
+                        }
+                        if let Some(draft) = &mut self.draft {
+                            if draft.id == game_id {
+                                draft.last_played_at = Some(timestamp);
+                            }
+                        }
+                        if !outcome.success {
+                            self.error = Some(AppError::new(format!(
+                                "游戏异常退出（退出码 {:?}）",
+                                outcome.exit_code
+                            )));
+                        }
+                    }
+                    Err(error) => {
+                        self.error = Some(AppError::new("启动失败").with_detail(error));
+                    }
+                }
+                iced::Task::none()
+            }
         }
     }
 
@@ -844,6 +931,12 @@ impl App {
             }
         }
         iced::Task::none()
+    }
+
+    fn inherited_env() -> BTreeMap<String, String> {
+        std::env::vars_os()
+            .filter_map(|(key, value)| Some((key.into_string().ok()?, value.into_string().ok()?)))
+            .collect()
     }
 
     fn game_for_actions(&self, game_id: Uuid) -> Result<Game, String> {

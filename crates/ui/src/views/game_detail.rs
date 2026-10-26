@@ -27,8 +27,22 @@ pub fn view(app: &App) -> Element<'_, Message> {
             "游戏详情"
         })
         .size(24),
+        text(if app.running.contains_key(&draft.id) {
+            "运行中"
+        } else {
+            ""
+        })
+        .size(12),
         iced::widget::horizontal_space(),
         button("保存").on_press_maybe((!app.pending.saving).then_some(Message::SaveDraft)),
+        button("启动").on_press_maybe(
+            (!draft.is_new && !app.running.contains_key(&draft.id))
+                .then_some(Message::Launch(draft.id))
+        ),
+        button("删除游戏").on_press_maybe(
+            (!draft.is_new && !app.running.contains_key(&draft.id))
+                .then_some(Message::ConfirmDelete(DeleteTarget::Game(draft.id)))
+        ),
     ]
     .spacing(8);
 

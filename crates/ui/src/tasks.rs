@@ -1,4 +1,4 @@
-use crate::app::DeleteTarget;
+use crate::app::{DeleteTarget, LaunchOutcome};
 use display::{SessionType, X11Output};
 use launcher_core::{Game, Runner};
 use prefix::{DxvkSource, PrefixPlan, PrefixStatus};
@@ -167,6 +167,39 @@ pub async fn save_settings(
     })
     .await
     .map_err(|error| format!("设置保存任务失败: {error}"))?
+}
+
+pub async fn launch_game(
+    db: Arc<Mutex<Db>>,
+    request: launch::LaunchRequest,
+) -> Result<LaunchOutcome, String> {
+    let game_id = request.game.id;
+    let plan_request = request.clone();
+
+    let plan = tokio::task::spawn_blocking(move || launch::build_plan(&plan_request))
+        .await
+        .map_err(|error| format!("启动计划任务失败: {error}"))?
+        .map_err(|error| error.to_string())?;
+
+    let mut child = launch::spawn_plan(&plan)
+        .await
+        .map_err(|error| error.to_string())?;
+
+    let wait_result = child.wait().await;
+    let timestamp = chrono::Utc::now().timestamp();
+
+    let _ = tokio::task::spawn_blocking(move || {
+        if let Ok(db) = db.lock() {
+            let _ = db.touch_last_played(game_id, timestamp);
+        }
+    })
+    .await;
+
+    let status = wait_result.map_err(|error| format!("等待游戏进程失败: {error}"))?;
+    Ok(LaunchOutcome {
+        exit_code: status.code(),
+        success: status.success(),
+    })
 }
 
 pub async fn delete_target(
@@ -561,5 +594,71 @@ mod tests {
         .await
         .unwrap();
         assert!(db.lock().unwrap().get_game(value.id).unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn launch_runs_fake_wine_and_touches_last_played() {
+        use display::SessionType;
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempdir().unwrap();
+        let exe = dir.path().join("game.exe");
+        fs::write(&exe, b"MZ").unwrap();
+
+        let prefix = dir.path().join("prefix");
+        fs::create_dir(&prefix).unwrap();
+        fs::write(prefix.join("system.reg"), "#arch=win64\n").unwrap();
+
+        let wine = dir.path().join("wine");
+        fs::write(&wine, "#!/bin/sh\nexit 7\n").unwrap();
+        let mut permissions = fs::metadata(&wine).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&wine, permissions).unwrap();
+
+        let game = Game {
+            id: Uuid::new_v4(),
+            name: "Test".into(),
+            executable_path: exe,
+            working_dir: Some(dir.path().to_path_buf()),
+            runner_id: None,
+            prefix_path: Some(prefix),
+            arch: Arch::Win64,
+            display: DisplayConfig::default(),
+            env_overrides: BTreeMap::new(),
+            dll_overrides: Vec::new(),
+            args: Vec::new(),
+            created_at: 1,
+            last_played_at: None,
+        };
+        let runner = Runner {
+            id: Uuid::new_v4(),
+            kind: RunnerKind::Wine,
+            name: "fake".into(),
+            binary_path: wine,
+            root_dir: dir.path().to_path_buf(),
+            arch: Arch::Win64,
+            source: RunnerSource::System,
+            verified: true,
+            version_string: None,
+        };
+        let request = launch::LaunchRequest {
+            game: game.clone(),
+            runner,
+            session: SessionType::X11,
+            global_env: BTreeMap::new(),
+            inherited_env: BTreeMap::new(),
+            steam_compat_client: dir.path().join("steam-client"),
+            default_prefix_root: dir.path().join("prefixes"),
+            gamescope_path: None,
+        };
+
+        let db = Arc::new(Mutex::new(Db::open_in_memory().unwrap()));
+        db.lock().unwrap().insert_game(&game).unwrap();
+
+        let outcome = launch_game(db.clone(), request).await.unwrap();
+        assert_eq!(outcome.exit_code, Some(7));
+        assert!(!outcome.success);
+        let stored = db.lock().unwrap().get_game(game.id).unwrap().unwrap();
+        assert!(stored.last_played_at.is_some());
     }
 }
