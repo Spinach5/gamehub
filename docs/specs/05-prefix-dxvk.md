@@ -43,7 +43,7 @@ pub fn plan_for_game(
 - Create: `crates/prefix/src/status.rs`
 - Modify: `crates/prefix/src/lib.rs`
 
-- [ ] **Step 1: 写错误类型**
+- [x] **Step 1: 写错误类型**
 
 `crates/prefix/src/error.rs`：
 
@@ -89,7 +89,7 @@ pub enum PrefixError {
 }
 ```
 
-- [ ] **Step 2: 写状态测试**
+- [x] **Step 2: 写状态测试**
 
 `crates/prefix/src/status.rs`：
 
@@ -293,12 +293,12 @@ pub use status::{
 };
 ```
 
-- [ ] **Step 3: 运行并确认失败**
+- [x] **Step 3: 运行并确认失败**
 
 Run: `cargo test -p prefix`
 Expected: 编译失败，`PrefixPlan` 未定义。
 
-- [ ] **Step 4: 实现**
+- [x] **Step 4: 实现**
 
 ```rust
 use launcher_core::{Arch, Game, Runner, RunnerKind};
@@ -422,12 +422,12 @@ pub fn status(plan: &PrefixPlan) -> PrefixStatus {
 }
 ```
 
-- [ ] **Step 5: 运行测试**
+- [x] **Step 5: 运行测试**
 
 Run: `cargo test -p prefix`
 Expected: 8 passed。
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```bash
 git add crates/prefix
@@ -442,7 +442,7 @@ git commit -m "feat(prefix): add plan, status and arch detection with proton pfx
 - Create: `crates/prefix/src/initialize.rs`
 - Modify: `crates/prefix/src/lib.rs`
 
-- [ ] **Step 1: 写测试**
+- [x] **Step 1: 写测试**
 
 `crates/prefix/src/initialize.rs` 的测试模块：
 
@@ -594,12 +594,12 @@ pub(crate) fn fake_runner(kind: RunnerKind, binary_path: PathBuf) -> Runner {
 }
 ```
 
-- [ ] **Step 2: 运行并确认失败**
+- [x] **Step 2: 运行并确认失败**
 
 Run: `cargo test -p prefix`
 Expected: 编译失败，`initialize_with_timeout` 未定义。
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 ```rust
 use crate::{status, PrefixError, PrefixPlan, PrefixStatus};
@@ -686,12 +686,12 @@ mod test_support;
 mod initialize;
 ```
 
-- [ ] **Step 4: 运行测试**
+- [x] **Step 4: 运行测试**
 
 Run: `cargo test -p prefix`
 Expected: 12 passed。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add crates/prefix
@@ -705,7 +705,7 @@ git commit -m "feat(prefix): initialize wine prefixes with timeout and env"
 **Files:**
 - Modify: `crates/prefix/src/initialize.rs`
 
-- [ ] **Step 1: 追加测试**
+- [x] **Step 1: 追加测试**
 
 ```rust
     #[tokio::test]
@@ -748,12 +748,12 @@ printf '#arch=win64\n' > "$STEAM_COMPAT_DATA_PATH/pfx/system.reg"
     }
 ```
 
-- [ ] **Step 2: 运行测试**
+- [x] **Step 2: 运行测试**
 
 Run: `cargo test -p prefix`
 Expected: 13 passed。若失败，检查 `status()` 是否对 Proton 使用了 `pfx/system.reg`。
 
-- [ ] **Step 3: 提交**
+- [x] **Step 3: 提交**
 
 ```bash
 git add crates/prefix
@@ -768,7 +768,7 @@ git commit -m "test(prefix): verify proton pfx initialization"
 - Create: `crates/prefix/src/dxvk.rs`
 - Modify: `crates/prefix/src/lib.rs`
 
-- [ ] **Step 1: 写测试**
+- [x] **Step 1: 写测试**
 
 `crates/prefix/src/dxvk.rs` 测试模块：
 
@@ -901,12 +901,12 @@ mod tests {
 }
 ```
 
-- [ ] **Step 2: 运行并确认失败**
+- [x] **Step 2: 运行并确认失败**
 
 Run: `cargo test -p prefix`
 Expected: 编译失败，`DxvkSource` 未定义。
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 ```rust
 use crate::{status, windows_root, PrefixError, PrefixPlan, PrefixStatus};
@@ -1114,12 +1114,12 @@ pub use dxvk::{
 };
 ```
 
-- [ ] **Step 4: 运行测试**
+- [x] **Step 4: 运行测试**
 
 Run: `cargo test -p prefix`
 Expected: 18 passed。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add crates/prefix
@@ -1133,7 +1133,7 @@ git commit -m "feat(prefix): validate dxvk source and map dll targets"
 **Files:**
 - Modify: `crates/prefix/src/dxvk.rs`
 
-- [ ] **Step 1: 追加测试**
+- [x] **Step 1: 追加测试**
 
 ```rust
     #[tokio::test]
@@ -1277,12 +1277,12 @@ git commit -m "feat(prefix): validate dxvk source and map dll targets"
 
 注意：`install_for_proton` 中同一脚本会收到每次 reg 调用；日志第一行是 `run`，第二行是 `reg`。因为 `proton run reg add ...`。断言 `args[0]=="run"`、`args[1]=="reg"`。
 
-- [ ] **Step 2: 运行测试**
+- [x] **Step 2: 运行测试**
 
 Run: `cargo test -p prefix`
 Expected: 21 passed。
 
-- [ ] **Step 3: 提交**
+- [x] **Step 3: 提交**
 
 ```bash
 git add crates/prefix
@@ -1298,7 +1298,7 @@ git commit -m "feat(prefix): copy dxvk files and register dll overrides"
 - Modify: `crates/prefix/src/lib.rs`
 - Modify: `crates/prefix/src/initialize.rs`
 
-- [ ] **Step 1: 实现删除（带安全护栏）**
+- [x] **Step 1: 实现删除（带安全护栏）**
 
 先给 `PrefixError` 增加：
 
@@ -1329,7 +1329,7 @@ pub async fn delete_prefix(path: &Path) -> Result<(), PrefixError> {
 
 需要 `use std::path::Path;`。这个护栏确保 UI 不会因为用户误选了 `$HOME` 或 `/` 而递归删除；只有含 `system.reg` 或 `pfx/system.reg` 的目录才允许删除。
 
-- [ ] **Step 2: 测试删除**
+- [x] **Step 2: 测试删除**
 
 在 `crates/prefix/src/lib.rs` 末尾加入：
 
@@ -1368,7 +1368,7 @@ mod tests {
 }
 ```
 
-- [ ] **Step 3: 增加真实 Wine 集成测试（`#[ignore]`）**
+- [x] **Step 3: 增加真实 Wine 集成测试（`#[ignore]`）**
 
 在 `initialize.rs` 测试模块：
 
@@ -1398,7 +1398,7 @@ mod tests {
     }
 ```
 
-- [ ] **Step 4: 运行常规测试与真实测试**
+- [x] **Step 4: 运行常规测试与真实测试**
 
 Run: `cargo test -p prefix`
 Expected: 23 passed，1 ignored。
@@ -1411,7 +1411,7 @@ cargo test -p prefix initializes_with_real_system_wine -- --ignored --nocapture
 
 Expected: 生成 `system.reg`，测试通过。若 Wine 在无图形环境报错，记录 stderr 到 CHANGELOG，不要修改测试为静默跳过。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add crates/prefix
@@ -1422,15 +1422,21 @@ git commit -m "feat(prefix): add prefix deletion and real wine integration test"
 
 ## P4 验收
 
-- [ ] `cargo test -p prefix` 通过。
-- [ ] Wine prefix 的 `system.reg` 在根目录；Proton 在 `pfx/system.reg`。
-- [ ] `PrefixPlan::initialize` 对已初始化 prefix 返回 `Ok(false)`，不重复执行 wineboot。
-- [ ] arch 不匹配在 spawn 前报错。
-- [ ] wineboot 非零退出携带截断 stderr；超时会杀掉子进程。
-- [ ] DXVK Win64 映射 x64→system32、x32→syswow64；Win32 映射 x32→system32。
-- [ ] DXVK 复制完成后对每个唯一 DLL 执行一次 `reg add`；Proton 走 `proton run reg add`。
-- [ ] 真实 Wine 测试用手工 `--ignored` 运行并记录结果。
+- [x] `cargo test -p prefix` 通过。
+- [x] Wine prefix 的 `system.reg` 在根目录；Proton 在 `pfx/system.reg`。
+- [x] `PrefixPlan::initialize` 对已初始化 prefix 返回 `Ok(false)`，不重复执行 wineboot。
+- [x] arch 不匹配在 spawn 前报错。
+- [x] wineboot 非零退出携带截断 stderr；超时会杀掉子进程。
+- [x] DXVK Win64 映射 x64→system32、x32→syswow64；Win32 映射 x32→system32。
+- [x] DXVK 复制完成后对每个唯一 DLL 执行一次 `reg add`；Proton 走 `proton run reg add`。
+- [x] 真实 Wine 测试用手工 `--ignored` 运行并记录结果。
 
 ## 实施记录
 
-（实施后填写：真实 wineboot 耗时、DXVK 版本、偏差。）
+- 真实 wineboot 耗时：14.23 s（Wine 10.0 Debian 10.0~repack-6，win64 prefix，180 s 预算）；`system.reg` 正常生成，无图形环境报错。
+- DXVK 版本：本机未安装 DXVK，也未引入任何下载逻辑；源校验/复制/`reg add` 均由伪造 DLL 目录与假 runner 脚本覆盖。DXVK 源按官方发布结构（`x64/`、`x32/`）读取，由用户在 UI 中指定。
+- 测试数量偏差（计划计数与测试模块实际定义不一致）：PF1 实际 10 个（计划 8），PF2 后 14 个（计划 12），PF3 后 15 个（计划 13），PF4 后 20 个（计划 18），PF5 后 23 个（计划 21），PF6 后 25 passed + 1 ignored（计划 23 + 1）。
+- 偏差 1：`test_support` 在计划内容之外增加 `EXEC_LOCK`（tokio Mutex），串行化"写脚本并 spawn"的测试，避免 P3 中已复现的 ETXTBSY 竞态；prefix 全量测试连续 30 次运行 0 失败。
+- 偏差 2：`detect_arch` 中 `File::open` 不需要 `mut`（`Read::take` 按值接收），按 clippy 要求去掉。
+- 偏差 3：PF5 测试中删除了未使用的 `std::path::PathBuf` 导入。
+- 验证：`cargo fmt --all --check`、`cargo clippy --workspace --all-targets -- -D warnings`、`cargo test --workspace`（82 passed, 1 ignored）、`cargo build --workspace` 全部通过；`cargo test -p prefix initializes_with_real_system_wine -- --ignored` 通过。

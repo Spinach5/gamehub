@@ -2,6 +2,44 @@
 
 本文件记录每个实施阶段完成的内容、与规格的偏差以及验证结果。
 
+## P4 — prefix 与 DXVK
+
+### 完成内容
+
+- `PrefixPlan` 与 `plan_for_game`：Wine 使用 `game.arch`，Proton 固定 win64；
+  `prefix_path` 显式值优先，否则 `<default_root>/<game_id>`。
+- `windows_root` 封装布局差异：Wine 在 prefix 根目录，Proton 在 `pfx/`；
+  `detect_arch` 读取 `system.reg` 前 8 KiB 的 `#arch=` 标记。
+- `PrefixStatus`：Missing / NotInitialized / Initialized / ArchMismatch。
+- `initialize_with_timeout`：已初始化返回 `Ok(false)`；arch 不匹配在 spawn 前报错；
+  `wineboot -u` 带完整 Wine/Proton 环境、piped stderr、超时 `kill_on_drop`、
+  stderr 4 KiB 截断；wineboot 后必须以 `system.reg` 存在确认成功。
+- DXVK：校验用户源目录（x64/x32），win64 映射 x64→system32、x32→syswow64，
+  win32 映射 x32→system32；d3d11/dxgi 必需，d3d10core/d3d9 可选；
+  复制后对每个唯一 DLL 执行一次 `reg add ... DllOverrides /d native,builtin /f`
+  （Proton 走 `proton run reg add`），超时 30 s，错误携带 DLL 名与截断 stderr。
+- `delete_prefix`：幂等；仅删除含 `system.reg` 或 `pfx/system.reg` 的目录，
+  否则 `RefusingToDeleteNonPrefix`。
+
+### 与规格的偏差
+
+- 计划中的测试计数与实际测试模块定义不一致（PF1 10 而非 8，之后依次为
+  14/15/20/23/25+1 ignored，而非 12/13/18/21/23+1）。
+- `test_support` 额外提供 `EXEC_LOCK`（tokio Mutex），串行化"写脚本并 spawn"
+  的测试，避免 P3 已复现的 ETXTBSY 竞态；prefix 全量测试 30 次运行 0 失败。
+- `detect_arch` 的 `File::open` 去掉不必要的 `mut`（clippy）。
+- PF5 测试删除未使用的 `PathBuf` 导入（clippy）。
+
+### 验证
+
+- 真实 wineboot：14.23 s 完成 win64 prefix 初始化（Wine 10.0）。
+- DXVK：本机无 DXVK，也未引入下载；由伪造源目录与假 runner 覆盖。
+- `cargo test -p prefix`：25 passed，1 ignored；
+  `--ignored` 真实 Wine 测试通过。
+- `cargo test --workspace`：82 passed，1 ignored。
+- `cargo clippy --workspace --all-targets -- -D warnings`、`cargo fmt --all --check`、
+  `cargo build --workspace`：通过。
+
 ## P3 — runner-wine
 
 ### 完成内容
