@@ -67,7 +67,7 @@ LaunchFinished {
 - Modify: `crates/ui/src/draft.rs`
 - Modify: `crates/ui/src/app.rs`
 
-- [ ] **Step 1: 在 `draft.rs` 追加枚举**
+- [x] **Step 1: 在 `draft.rs` 追加枚举**
 
 ```rust
 #[derive(Debug, Clone)]
@@ -150,7 +150,7 @@ pub fn apply_args_action(rows: &mut Vec<String>, action: ArgsAction) {
             DraftAction::Args(action) => apply_args_action(&mut self.args_rows, action),
 ```
 
-- [ ] **Step 2: 追加动作测试**
+- [x] **Step 2: 追加动作测试**
 
 ```rust
     #[test]
@@ -215,7 +215,7 @@ pub fn apply_args_action(rows: &mut Vec<String>, action: ArgsAction) {
     }
 ```
 
-- [ ] **Step 3: 在 `app.rs` 增加 `LaunchOutcome` 与消息**
+- [x] **Step 3: 在 `app.rs` 增加 `LaunchOutcome` 与消息**
 
 ```rust
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -235,12 +235,12 @@ pub struct LaunchOutcome {
     },
 ```
 
-- [ ] **Step 4: 运行测试**
+- [x] **Step 4: 运行测试**
 
 Run: `cargo test -p ui draft`
 Expected: 14 passed（12 + 2）。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add crates/ui
@@ -255,7 +255,7 @@ git commit -m "feat(ui): add display, env, dll and args draft actions"
 - Modify: `crates/ui/src/widgets.rs`
 - Modify: `crates/ui/src/views/game_detail.rs`
 
-- [ ] **Step 1: 在 `widgets.rs` 追加选项构造**
+- [x] **Step 1: 在 `widgets.rs` 追加选项构造**
 
 ```rust
 use display::X11Output;
@@ -331,7 +331,7 @@ pub fn monitor_choice(
 }
 ```
 
-- [ ] **Step 2: 在 `views/game_detail.rs` 追加区块**
+- [x] **Step 2: 在 `views/game_detail.rs` 追加区块**
 
 在 `runner_section` 之后构造：
 
@@ -561,12 +561,12 @@ use iced::widget::{checkbox, pick_list, text_input};
 
 （按实际已导入的 widget 合并，避免重复。）
 
-- [ ] **Step 3: 编译**
+- [x] **Step 3: 编译**
 
 Run: `cargo build -p ui`
 Expected: 成功。若 `checkbox` 不在 `iced::widget`，使用 `iced::widget::checkbox` 的完整路径；本机 iced 0.13 已在 U1 冒烟中确认 widget 可用。
 
-- [ ] **Step 4: 提交**
+- [x] **Step 4: 提交**
 
 ```bash
 git add crates/ui
@@ -582,7 +582,7 @@ git commit -m "feat(ui): add display, environment, dll and args editors"
 - Modify: `crates/ui/src/tasks.rs`
 - Modify: `crates/ui/src/views/game_detail.rs`
 
-- [ ] **Step 1: 在 `tasks.rs` 增加启动任务**
+- [x] **Step 1: 在 `tasks.rs` 增加启动任务**
 
 ```rust
 use crate::app::LaunchOutcome;
@@ -621,7 +621,7 @@ pub async fn launch_game(
 }
 ```
 
-- [ ] **Step 2: 在 `app.rs` 增加消息 handler**
+- [x] **Step 2: 在 `app.rs` 增加消息 handler**
 
 辅助函数：
 
@@ -743,7 +743,7 @@ pub async fn launch_game(
 
 注意 `LaunchRequest.runner` 使用 `prefix_plan.runner`，它与 `launch::resolve_runner` 一致；不要重复解析导致两个 runner 来源不一致。
 
-- [ ] **Step 3: 在 GameDetail header 增加启动/删除按钮**
+- [x] **Step 3: 在 GameDetail header 增加启动/删除按钮**
 
 把 header 的按钮行改为：
 
@@ -768,7 +768,7 @@ pub async fn launch_game(
     .spacing(8);
 ```
 
-- [ ] **Step 4: 增加启动任务测试**
+- [x] **Step 4: 增加启动任务测试**
 
 ```rust
     #[tokio::test]
@@ -842,12 +842,12 @@ pub async fn launch_game(
 
 
 
-- [ ] **Step 5: 运行测试**
+- [x] **Step 5: 运行测试**
 
 Run: `cargo test -p ui`
 Expected: 全部通过。
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```bash
 git add crates/ui
@@ -862,7 +862,7 @@ git commit -m "feat(ui): launch games and track running state"
 - Modify: `crates/ui/src/views/game_detail.rs`
 - Modify: `CHANGELOG.md`
 
-- [ ] **Step 1: 增加 pending 提示与不可用说明**
+- [x] **Step 1: 增加 pending 提示与不可用说明**
 
 - 当 `draft.is_new` 时，在 header 下显示：`text("保存游戏后才能启动、创建 Prefix 或安装 DXVK").size(12)`。
 - 当 `app.prefix_status != Some(PrefixStatus::Initialized)` 时，在兼容层区块追加提示：`text("启动前必须有一个已初始化的 Prefix").size(12)`。
@@ -871,7 +871,7 @@ git commit -m "feat(ui): launch games and track running state"
 - 当 `draft.env_rows` 中存在 `WINEDLLOVERRIDES` 时，保存会失败；在环境变量区块显示固定提示（已有文案）。
 - 所有异步按钮在 pending 时通过 `on_press_maybe(None)` 禁用：保存、启动、创建 Prefix、安装 DXVK、删除。
 
-- [ ] **Step 2: 运行全量自动检查**
+- [x] **Step 2: 运行全量自动检查**
 
 ```bash
 cargo fmt --all
@@ -882,7 +882,7 @@ cargo build --workspace
 
 Expected: 全部通过。
 
-- [ ] **Step 3: 手工端到端（本机 Wine 10.0）**
+- [x] **Step 3: 手工端到端（本机 Wine 10.0）**
 
 1. `cargo run -p ui`
 2. Runner 管理 → 重新探测系统 Wine。
@@ -895,7 +895,7 @@ Expected: 全部通过。
 9. 删除游戏：运行中拒绝；退出后可删除。
 10. 删除 Prefix：单游戏引用时成功；共享时拒绝。
 
-- [ ] **Step 4: 更新 CHANGELOG**
+- [x] **Step 4: 更新 CHANGELOG**
 
 ```markdown
 ## P9 — 配置与启动 UI
@@ -909,7 +909,7 @@ Expected: 全部通过。
 验证：`cargo test --workspace`；本机 Wine 10.0 端到端启动。
 ```
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add crates/ui CHANGELOG.md
@@ -920,16 +920,58 @@ git commit -m "feat(ui): finish configuration editors and launch flow"
 
 ## P9 验收
 
-- [ ] `cargo test -p ui` 通过，`cargo test --workspace` 通过。
-- [ ] 显示配置可编辑并持久化；X11 非 gamescope 时分辨率输入被说明替代。
-- [ ] 环境变量/DLL/参数行可增删改；保存后重启保留。
-- [ ] 手动设置 `WINEDLLOVERRIDES` 会被草稿校验拒绝。
-- [ ] 启动成功后 `last_played_at` 更新；非零退出码在 UI 展示。
-- [ ] 同一 prefix 不允许并发启动。
-- [ ] 运行中的游戏不能删除、不能删除其 prefix。
-- [ ] 启动前校验覆盖：exe 缺失、runner 二进制缺失、working_dir 缺失、prefix 未初始化/arch 不匹配、强制 gamescope 不可用。
-- [ ] 关闭应用不会杀掉正在运行的游戏（子进程不在窗口关闭时被 kill）。
+- [x] `cargo test -p ui` 通过，`cargo test --workspace` 通过。
+- [x] 显示配置可编辑并持久化；X11 非 gamescope 时分辨率输入被说明替代。
+- [x] 环境变量/DLL/参数行可增删改；保存后重启保留。
+- [x] 手动设置 `WINEDLLOVERRIDES` 会被草稿校验拒绝。
+- [x] 启动成功后 `last_played_at` 更新；非零退出码在 UI 展示。
+- [x] 同一 prefix 不允许并发启动。
+- [x] 运行中的游戏不能删除、不能删除其 prefix。
+- [x] 启动前校验覆盖：exe 缺失、runner 二进制缺失、working_dir 缺失、prefix 未初始化/arch 不匹配、强制 gamescope 不可用。
+- [x] 关闭应用不会杀掉正在运行的游戏（子进程不在窗口关闭时被 kill）。
 
 ## 实施记录
 
-（实施后填写：真实游戏/测试 exe、Wine 版本、gamescope 缺失情况、偏差。）
+- 环境：Cargo workspace（rustc 1.99.1），Iced 0.13.1；GNOME Wayland
+  3840x1080（XDG_SESSION_TYPE=wayland），UI 以 XWayland 后端运行用于
+  XTEST 自动化；Wine 10.0（Debian 10.0~repack-6），未安装 gamescope。
+- 测试 exe：Wine 自带 `notepad.exe` 与 `cmd.exe`
+  （`/usr/lib/x86_64-linux-gnu/wine/x86_64-windows/`）。
+- 自动检查：`cargo test -p ui` 26 passed；`cargo test --workspace`
+  156 passed、1 ignored；`cargo fmt --all --check`、
+  `cargo clippy --workspace --all-targets -- -D warnings`、
+  `cargo build --workspace` 均通过。
+- 手工验证：
+  - Runner 管理重新探测得到 `wine-10.0` 并设为默认；新建游戏选择
+    notepad.exe、保存成功。
+  - Wine prefix 约 12 秒内初始化完成，状态刷新为“已初始化”。
+  - 显示区按 Wayland 会话显示输出名文本输入；gamescope 缺失时自动模式
+    提示生效，分辨率/刷新率被说明替代；全屏开关可编辑。
+  - 环境变量 `DXVK_HUD=fps`、DLL Override `d3d11`（原生+内置）与启动
+    参数 `/c exit 7` 保存后重启应用仍保留。
+  - 草稿加入手写 `WINEDLLOVERRIDES` 后保存被拒绝，错误条展示
+    “必须通过结构化 DLL override 配置”。
+  - 启动 notepad：详情页显示“运行中”，运行期间“启动/删除游戏”不可用，
+    删除 Prefix 被 `delete_target` 拒绝；子进程环境含 `DXVK_HUD=fps`
+    与 `WINEDLLOVERRIDES=d3d11=n,b`。正常关闭后错误消失，`最近游玩`
+    与 DB `last_played_at` 更新。
+  - 启动 `cmd.exe /c exit 7` 后错误条显示“游戏异常退出（退出码 Some(7)）”，
+    `last_played_at` 仍更新。
+  - 同一 Prefix 并发保护：直接向测试 DB 插入第二个游戏（指向同一 prefix）
+    后启动第二个游戏，得到“同一 Prefix 已有游戏在运行”。
+  - 共享 Prefix 删除被拒绝；删除第二个游戏后，单游戏 Prefix 删除成功，
+    DB 引用清空且目录移除。
+  - 运行 notepad 时关闭 gameHub 窗口，应用退出而 notepad 进程继续运行。
+- 偏差：
+  - 手工环境用 XWayland 渲染，但会话检测仍按 `XDG_SESSION_TYPE` 判定为
+    Wayland，因此显示器字段为文本输入；未在本机验证真实 Wayland
+    winit 后端。
+  - 本机无 gamescope，未做 gamescope 实际启动；强制模式拒绝路径由
+    launch crate 的既有测试覆盖。
+  - 同一 Prefix 并发验证的第二个游戏通过测试 DB 直接插入，而不是 UI
+    新建（UI 新建与共享 Prefix 选择已在 P8 验证）。
+  - 规格 U15 要求“所有异步按钮 pending 时禁用”；本次在 GameDetail
+    为保存/启动/创建 Prefix/安装 DXVK/删除按钮补齐 (`pending` 条件)，
+    Runner/Settings 页的既有禁用逻辑未改动。
+  - `launch_game` 在进程退出后写 `last_played_at`；即使非零退出码也记录，
+    与“最近游玩”语义一致。

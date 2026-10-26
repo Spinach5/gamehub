@@ -6,6 +6,7 @@ use crate::widgets::{
 };
 use iced::widget::{button, checkbox, column, pick_list, row, scrollable, text, text_input};
 use iced::{Element, Length};
+use launcher_core::GamescopeMode;
 use prefix::PrefixStatus;
 
 pub fn view(app: &App) -> Element<'_, Message> {
@@ -36,11 +37,11 @@ pub fn view(app: &App) -> Element<'_, Message> {
         iced::widget::horizontal_space(),
         button("保存").on_press_maybe((!app.pending.saving).then_some(Message::SaveDraft)),
         button("启动").on_press_maybe(
-            (!draft.is_new && !app.running.contains_key(&draft.id))
+            (!draft.is_new && !app.running.contains_key(&draft.id) && !app.pending.deleting)
                 .then_some(Message::Launch(draft.id))
         ),
         button("删除游戏").on_press_maybe(
-            (!draft.is_new && !app.running.contains_key(&draft.id))
+            (!draft.is_new && !app.running.contains_key(&draft.id) && !app.pending.deleting)
                 .then_some(Message::ConfirmDelete(DeleteTarget::Game(draft.id)))
         ),
     ]
@@ -107,6 +108,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
             ),
             button("删除 Prefix").on_press_maybe(
                 (!draft.is_new
+                    && !app.pending.deleting
                     && matches!(
                         app.prefix_status,
                         Some(PrefixStatus::Initialized | PrefixStatus::ArchMismatch { .. })
@@ -153,6 +155,9 @@ pub fn view(app: &App) -> Element<'_, Message> {
             content = content.push(text(format!(
                 "架构不匹配：现有 prefix 为 {existing:?}，请更换 Prefix 或删除后重建"
             )));
+        }
+        if app.prefix_status != Some(PrefixStatus::Initialized) {
+            content = content.push(text("启动前必须有一个已初始化的 Prefix").size(12));
         }
 
         content
@@ -257,7 +262,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
         .spacing(8)
     };
 
-    let display_section = column![
+    let mut display_section = column![
         row![text("后端："), backend_pick].spacing(8),
         text("后端字段仅作记录；实际 X11/Wayland 以启动时的会话检测为准。").size(12),
         row![text("gamescope："), gamescope_pick].spacing(8),
@@ -266,6 +271,19 @@ pub fn view(app: &App) -> Element<'_, Message> {
         resolution_controls,
     ]
     .spacing(8);
+
+    if app.gamescope_path.is_none() {
+        let hint = match draft.display.gamescope {
+            GamescopeMode::Forced => Some("强制 gamescope 但未检测到 gamescope，启动会被拒绝"),
+            GamescopeMode::Auto => {
+                Some("未检测到 gamescope，自动模式不会生效，分辨率/刷新率不会应用")
+            }
+            GamescopeMode::Off => None,
+        };
+        if let Some(hint) = hint {
+            display_section = display_section.push(text(hint).size(12));
+        }
+    }
 
     let mut env_rows = column![].spacing(8);
     for (index, entry) in draft.env_rows.iter().enumerate() {
@@ -347,17 +365,17 @@ pub fn view(app: &App) -> Element<'_, Message> {
     args_rows = args_rows
         .push(button("添加参数").on_press(Message::Draft(DraftAction::Args(ArgsAction::Add))));
 
-    let content = column![
-        header,
-        section("基本信息", basic),
-        section("兼容层与 Prefix", runner_section),
-        section("显示", display_section),
-        section("环境变量", env_section),
-        section("DLL Override", dll_rows),
-        section("启动参数", args_rows),
-    ]
-    .spacing(12)
-    .padding(20);
+    let mut content = column![header].spacing(12).padding(20);
+    if draft.is_new {
+        content = content.push(text("保存游戏后才能启动、创建 Prefix 或安装 DXVK").size(12));
+    }
+    content = content
+        .push(section("基本信息", basic))
+        .push(section("兼容层与 Prefix", runner_section))
+        .push(section("显示", display_section))
+        .push(section("环境变量", env_section))
+        .push(section("DLL Override", dll_rows))
+        .push(section("启动参数", args_rows));
 
     scrollable(content).height(Length::Fill).into()
 }

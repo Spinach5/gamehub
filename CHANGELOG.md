@@ -2,6 +2,62 @@
 
 本文件记录每个实施阶段完成的内容、与规格的偏差以及验证结果。
 
+## P9 — 配置与启动 UI
+
+### 完成内容
+
+- GameDetail 配置区补全：环境变量、DLL Override、启动参数编辑器和显示
+  设置（分辨率、刷新率、gamescope 模式）；所有编辑只改草稿，“保存”统一
+  写库。
+- 启动流程：保存后的游戏可启动；启动前校验未保存草稿、游戏/默认 Runner、
+  同 Prefix 并发、DB 与全局环境变量读取；`LaunchRequest` 汇总游戏、Runner、
+  session、全局/继承环境、Steam compat、默认 Prefix 根与 gamescope 路径。
+- 运行状态：启动成功后记录 `running`（游戏 → Prefix 路径）并实时显示“运行
+  中”；运行期间禁用启动、删除游戏和删除 Prefix；进程退出后清理状态并写入
+  `last_played_at`，异常退出显示退出码。
+- 启动前置提示：Prefix 未初始化、gamescope 未检测到、新建草稿未保存时在
+  详情页给出明确提示；Forced/Auto 模式分别说明拒绝或降级原因。
+- 重活（构建计划、spawn、等待进程、写库）留在 `tasks.rs`，`App::update`
+  只做校验与状态转移。
+
+### 与规格的偏差
+
+- 本机为 GNOME Wayland，自动化测试通过 `WINIT_UNIX_BACKEND=x11` 让 UI 跑在
+  XWayland 上以便 XTEST 点击；会话仍按 `XDG_SESSION_TYPE` 识别为 Wayland，
+  显示配置按 Wayland 分支验证。
+- 本机无 gamescope：只验证了 Auto/Forced 在未检测到 gamescope 时的提示与
+  启动拒绝，未验证真实 gamescope 启动参数拼接。
+- 同 Prefix 并发校验需要两个已保存游戏，手工验证时用 DB 预置第二个游戏，
+  验证后删除。
+- U15 的“删除中禁用创建/启动”只在 GameDetail 实现（本阶段没有其它创建或
+  启动入口）；Library 未新增禁用逻辑。
+- `last_played_at` 在进程异常退出时同样更新，便于“最近游玩”排序反映最后
+  一次启动。
+- 启动等待在 `spawn_blocking` 之外的异步任务中执行，关闭窗口后子进程继续
+  运行（未做进程组回收，与规格一致）。
+
+### 验证
+
+- `cargo test -p ui`：26 passed；`cargo test --workspace`：156 passed，
+  1 ignored。
+- `cargo fmt --all --check`、`cargo clippy --workspace --all-targets -- -D warnings`、
+  `cargo build --workspace`：通过。
+- UI 手工验证（XWayland + XTEST 真实点击、`import -window` 精确截图）：
+  - 系统 Wine 10.0 探测为默认 Runner；通过文件对话框选择 notepad.exe 新建
+    并保存游戏，Prefix 约 12 秒初始化完成，状态实时刷新；
+  - 显示设置输入 Wayland 显示器分辨率并保存；gamescope 未安装时 Auto 提
+    示不会生效、Forced 提示启动会被拒绝；
+  - 环境变量 `DXVK_HUD=fps`、DLL Override `d3d11`（native,builtin）、启动
+    参数 `/c exit 7` 保存后写入 DB，重启后保留；手写 `WINEDLLOVERRIDES`
+    保存被拒绝；
+  - 启动 notepad 后显示“运行中”，启动/删除按钮禁用，删除 Prefix 被拒绝，
+    子进程环境包含全局与游戏环境变量，`last_played_at` 更新；
+  - 用 cmd.exe 以退出码 7 结束，界面显示“游戏异常退出（退出码 Some(7)）”，
+    状态恢复可再次启动；
+  - 同 Prefix 的第二个游戏启动被拒绝（“同一 Prefix 已有游戏在运行”），共
+    享 Prefix 删除被拒绝；单游戏 Prefix 删除会清空引用并移除目录；
+  - 关闭 gameHub 窗口后被启动的 notepad 仍在运行，符合规格。
+
 ## P8 — Runner / Prefix / Settings UI
 
 ### 完成内容
