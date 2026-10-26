@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=gameHub
+GenericName=Windows Game Launcher
+Comment=Offline launcher for Windows games on Linux
+Exec=gamehub
+Icon=gamehub
+Terminal=false
+Categories=Game;
+Keywords=game;wine;proton;launcher;
+StartupNotify=true
+StartupWMClass=gamehub

@@ -1,0 +1,226 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to build (without leading 'v'); defaults to the workspace Cargo.toml version"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: "1"
+  BINARY: gamehub
+  NFPM_VERSION: "2.48.0"
+  APPIMAGE_TOOL_BASE: "https://github.com/AppImage/appimagetool/releases/download/continuous"
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: build-${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    # Native builds inside Ubuntu 22.04 so every artifact targets glibc >= 2.35,
+    # independent of the (newer) GitHub runner image's glibc.
+    container:
+      image: ubuntu:22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-24.04
+            nfpm_arch: amd64
+            appimage_arch: x86_64
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+            nfpm_arch: arm64
+            appimage_arch: aarch64
+    steps:
+      - name: Install build and packaging dependencies
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            build-essential ca-certificates curl file git pkg-config rpm \
+            xz-utils zstd \
+            libx11-6 libx11-xcb1 libxcb1 libxcb-shm0 libxcb-render0 libxcb-randr0 \
+            libxcb-xfixes0 libxcb-shape0 libxcb-xkb1 libxkbcommon0 libxkbcommon-x11-0 \
+            libwayland-client0 libwayland-cursor0 libwayland-egl1 \
+            xvfb xauth libvulkan1 libegl1 mesa-vulkan-drivers fonts-noto-cjk
+
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: release-${{ matrix.arch }}
+          cache-on-failure: true
+
+      - name: Resolve version
+        id: version
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if [ -n "${INPUT_VERSION:-}" ]; then
+            version="${INPUT_VERSION#v}"
+          elif [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            version="$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -n1)"
+          fi
+          # Arch pkgver cannot contain '-' (nfpm treats the suffix as pkgrel).
+          if ! printf '%s' "$version" | grep -Eq '^[0-9][0-9A-Za-z.+~_]*$'; then
+            echo "::error::Invalid version '$version'; use a tag like v1.2.3."
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Build release binary
+        run: cargo build --release --locked --bin "${BINARY}"
+
+      - name: Stage binary
+        run: install -Dm755 "target/release/${BINARY}" "dist/bin/${BINARY}"
+
+      - name: Build .deb, .rpm and pacman packages
+        env:
+          PKG_VERSION: ${{ steps.version.outputs.version }}
+          PKG_ARCH: ${{ matrix.nfpm_arch }}
+          PKG_ARCH_LABEL: ${{ matrix.arch }}
+          PKG_MAINTAINER: ${{ github.repository_owner }} <noreply@github.com>
+          PKG_HOMEPAGE: ${{ github.server_url }}/${{ github.repository }}
+          NFPM_ARCH: ${{ matrix.nfpm_arch }}
+        run: |
+          set -euo pipefail
+          curl -fsSL "https://github.com/goreleaser/nfpm/releases/download/v${NFPM_VERSION}/nfpm_${NFPM_VERSION}_Linux_${NFPM_ARCH}.tar.gz" \
+            | tar -xz -C /usr/local/bin nfpm
+          nfpm package -f packaging/nfpm.yaml -p deb -t "dist/${BINARY}_${PKG_VERSION}_${PKG_ARCH_LABEL}.deb"
+          nfpm package -f packaging/nfpm.yaml -p rpm -t "dist/${BINARY}_${PKG_VERSION}_${PKG_ARCH_LABEL}.rpm"
+          nfpm package -f packaging/nfpm.yaml -p archlinux -t "dist/${BINARY}_${PKG_VERSION}_${PKG_ARCH_LABEL}.pkg.tar.zst"
+
+      - name: Build .tar.xz
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          ARCH_LABEL: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          stage="dist/${BINARY}_${VERSION}_linux_${ARCH_LABEL}"
+          install -d "$stage"
+          install -m755 "target/release/${BINARY}" "$stage/${BINARY}"
+          install -m644 packaging/gamehub.desktop "$stage/gamehub.desktop"
+          install -m644 packaging/gamehub.svg "$stage/gamehub.svg"
+          install -m644 README.md "$stage/README.md"
+          tar -C dist -cJf "dist/${BINARY}_${VERSION}_linux_${ARCH_LABEL}.tar.xz" "$(basename "$stage")"
+
+      - name: Build .AppImage
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          ARCH_LABEL: ${{ matrix.arch }}
+          APPIMAGE_ARCH: ${{ matrix.appimage_arch }}
+        run: |
+          set -euo pipefail
+          appdir="${RUNNER_TEMP}/AppDir"
+          rm -rf "$appdir"
+          install -Dm755 "target/release/${BINARY}" "$appdir/usr/bin/${BINARY}"
+          install -Dm644 packaging/gamehub.desktop "$appdir/gamehub.desktop"
+          install -Dm644 packaging/gamehub.desktop "$appdir/usr/share/applications/gamehub.desktop"
+          install -Dm644 packaging/gamehub.svg "$appdir/gamehub.svg"
+          install -Dm644 packaging/gamehub.svg "$appdir/usr/share/icons/hicolor/scalable/apps/gamehub.svg"
+          ln -s gamehub.svg "$appdir/.DirIcon"
+          install -Dm755 packaging/AppRun "$appdir/AppRun"
+
+          curl -fsSL -o /tmp/appimagetool "${APPIMAGE_TOOL_BASE}/appimagetool-${APPIMAGE_ARCH}.AppImage"
+          chmod +x /tmp/appimagetool
+
+          ARCH="$APPIMAGE_ARCH" APPIMAGE_EXTRACT_AND_RUN=1 /tmp/appimagetool --no-appstream \
+            "$appdir" "dist/${BINARY}_${VERSION}_${ARCH_LABEL}.AppImage"
+
+      - name: Verify package contents and metadata
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          ARCH_LABEL: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          deb="dist/${BINARY}_${VERSION}_${ARCH_LABEL}.deb"
+          rpmf="dist/${BINARY}_${VERSION}_${ARCH_LABEL}.rpm"
+          pac="dist/${BINARY}_${VERSION}_${ARCH_LABEL}.pkg.tar.zst"
+          tarball="dist/${BINARY}_${VERSION}_linux_${ARCH_LABEL}.tar.xz"
+          appimage="dist/${BINARY}_${VERSION}_${ARCH_LABEL}.AppImage"
+
+          dpkg-deb --info "$deb"
+          dpkg-deb --contents "$deb"
+          rpm -qpi "$rpmf"
+          rpm -qp --requires "$rpmf"
+          tar --zstd -xOf "$pac" .PKGINFO
+          tar -tJf "$tarball"
+          file "$deb" "$rpmf" "$pac" "$tarball" "$appimage"
+
+          appimage_abs="$(readlink -f "$appimage")"
+          tmp="$(mktemp -d)"
+          ( cd "$tmp" && APPIMAGE_EXTRACT_AND_RUN=1 "$appimage_abs" --appimage-extract >/dev/null )
+          test -x "$tmp/squashfs-root/usr/bin/${BINARY}"
+          test -f "$tmp/squashfs-root/${BINARY}.desktop"
+          rm -rf "$tmp"
+
+      - name: Smoke test GUI startup
+        continue-on-error: true
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          ARCH_LABEL: ${{ matrix.arch }}
+        run: |
+          set +e
+          appimage="$(readlink -f "dist/${BINARY}_${VERSION}_${ARCH_LABEL}.AppImage")"
+          APPIMAGE_EXTRACT_AND_RUN=1 xvfb-run -a timeout 25s "$appimage" > /tmp/gamehub-smoke.log 2>&1
+          rc=$?
+          set -e
+          cat /tmp/gamehub-smoke.log || true
+          if [ "$rc" -eq 124 ]; then
+            echo "Smoke test OK: gameHub stayed alive for 25s."
+          else
+            echo "::warning::gameHub exited with code $rc during the smoke test; check the log above."
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gamehub-${{ matrix.arch }}
+          if-no-files-found: error
+          path: |
+            dist/*.deb
+            dist/*.rpm
+            dist/*.pkg.tar.zst
+            dist/*.AppImage
+            dist/*.tar.xz
+
+  release:
+    name: Publish GitHub release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: gamehub-*
+          path: dist
+          merge-multiple: true
+
+      - name: List release assets
+        run: ls -lh dist
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          fail_on_unmatched_files: true
+          generate_release_notes: true

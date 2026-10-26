@@ -1,0 +1,61 @@
+name: gamehub
+arch: ${PKG_ARCH}
+platform: linux
+version: ${PKG_VERSION}
+release: "1"
+section: games
+priority: optional
+maintainer: ${PKG_MAINTAINER}
+vendor: gameHub
+homepage: ${PKG_HOMEPAGE}
+license: NOASSERTION
+description: Offline launcher for Windows games on Linux (Wine/Proton, DXVK, gamescope).
+contents:
+  - src: dist/bin/gamehub
+    dst: /usr/bin/gamehub
+    file_info:
+      mode: 0755
+  - src: packaging/gamehub.desktop
+    dst: /usr/share/applications/gamehub.desktop
+    file_info:
+      mode: 0644
+  - src: packaging/gamehub.svg
+    dst: /usr/share/icons/hicolor/scalable/apps/gamehub.svg
+    file_info:
+      mode: 0644
+  - src: README.md
+    dst: /usr/share/doc/gamehub/README.md
+    file_info:
+      mode: 0644
+  - src: CHANGELOG.md
+    dst: /usr/share/doc/gamehub/CHANGELOG.md
+    file_info:
+      mode: 0644
+overrides:
+  deb:
+    depends:
+      - libc6 (>= 2.35)
+      - libgcc-s1
+    recommends:
+      - fonts-noto-cjk
+      - xdg-desktop-portal
+      - libvulkan1
+      - wine
+      - x11-xserver-utils
+    suggests:
+      - gamescope
+  rpm:
+    depends:
+      - glibc >= 2.35
+    recommends:
+      - xdg-desktop-portal
+      - vulkan-loader
+      - wine
+      - google-noto-sans-cjk-fonts
+    suggests:
+      - gamescope
+  archlinux:
+    depends:
+      - glibc
+archlinux:
+  pkgbase: gamehub
