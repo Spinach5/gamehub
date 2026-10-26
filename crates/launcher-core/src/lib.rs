@@ -1,1 +1,5 @@
-//! gameHub crate. The implementation phase for this crate is listed in docs/specs/00-overview.md.
+pub mod error;
+pub mod paths;
+
+pub use error::AppPathsError;
+pub use paths::AppPaths;
