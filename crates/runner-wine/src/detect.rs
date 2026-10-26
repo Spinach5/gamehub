@@ -283,4 +283,39 @@ mod tests {
         assert_eq!(candidates.len(), 1);
         assert_eq!(candidates[0], wine);
     }
+
+    #[tokio::test]
+    async fn detect_reads_version_from_fake_wine() {
+        let dir = tempdir().unwrap();
+        let wine = dir.path().join("wine");
+        write_script(&wine, "#!/bin/sh\necho wine-9.0-test\n");
+
+        let runners = detect_from_candidates(&[wine.clone()], Duration::from_secs(1)).await;
+        assert_eq!(runners.len(), 1);
+        assert_eq!(runners[0].version_string.as_deref(), Some("wine-9.0-test"));
+        assert_eq!(runners[0].binary_path, wine);
+        assert!(runners[0].verified);
+    }
+
+    #[tokio::test]
+    async fn detect_skips_failing_probe() {
+        let dir = tempdir().unwrap();
+        let wine = dir.path().join("wine");
+        write_script(&wine, "#!/bin/sh\necho boom >&2\nexit 3\n");
+
+        let runners = detect_from_candidates(&[wine], Duration::from_secs(1)).await;
+        assert!(runners.is_empty());
+    }
+
+    #[tokio::test]
+    async fn detect_times_out_hung_probe() {
+        let dir = tempdir().unwrap();
+        let wine = dir.path().join("wine");
+        write_script(&wine, "#!/bin/sh\nsleep 5\n");
+
+        let started = std::time::Instant::now();
+        let runners = detect_from_candidates(&[wine], Duration::from_millis(50)).await;
+        assert!(runners.is_empty());
+        assert!(started.elapsed() < Duration::from_secs(2));
+    }
 }
