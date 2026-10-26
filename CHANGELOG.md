@@ -2,6 +2,30 @@
 
 本文件记录每个实施阶段完成的内容、与规格的偏差以及验证结果。
 
+## P1 — 核心类型
+
+### 完成内容
+
+- `launcher-core::types` 定义跨 crate 契约：`Arch`、`RunnerKind`、
+  `RunnerSource`、`Runner`、`OverrideMode`、`DllOverride`、`DisplayBackend`、
+  `GamescopeMode`、`DisplayConfig`、`Game`。
+- 枚举统一 `snake_case` serde 表示；`Arch`/`RunnerKind` 的 `as_str` 与 serde
+  输出由测试保证一致，`parse` 仅接受小写。
+- `RunnerSource` 使用内部 tag：`{"kind":"system"}` /
+  `{"kind":"imported","original_path":...}`。
+- `DisplayConfig::default()`：Auto / None / None / None / fullscreen / Auto。
+- 集成测试 `tests/contracts.rs` 锁定 JSON 字段与未知枚举拒绝行为。
+
+### 与规格的偏差
+
+- 无。字段名、默认值与 spec 完全一致。
+
+### 验证
+
+- `cargo test -p launcher-core`：22 passed（20 单测 + 2 集成）。
+- `cargo clippy -p launcher-core --all-targets -- -D warnings`：通过。
+- `cargo fmt --all --check`：通过。
+
 ## P0 — 基线与冒烟
 
 ### 完成内容
