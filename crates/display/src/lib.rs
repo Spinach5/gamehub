@@ -1,1 +1,3 @@
-//! gameHub crate. The implementation phase for this crate is listed in docs/specs/00-overview.md.
+mod session;
+
+pub use session::{SessionType, detect_session, session_from};
