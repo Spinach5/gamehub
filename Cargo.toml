@@ -7,6 +7,28 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.85"
 
+[workspace.dependencies]
+launcher-core = { path = "crates/launcher-core" }
+storage = { path = "crates/storage" }
+runner-wine = { path = "crates/runner-wine" }
+prefix = { path = "crates/prefix" }
+display = { path = "crates/display" }
+launch = { path = "crates/launch" }
+
+iced = { version = "0.13.1", features = ["tokio", "advanced"] }
+tokio = { version = "1.54", features = ["rt-multi-thread", "macros", "process", "sync", "time", "fs"] }
+rusqlite = { version = "0.41", features = ["bundled"] }
+rfd = "0.17.2"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "2.0"
+uuid = { version = "1.28", features = ["v4", "serde"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "ansi"] }
+tracing-appender = "0.2"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+tempfile = "3"
+
 [workspace.lints.rust]
 unsafe_code = "forbid"
 

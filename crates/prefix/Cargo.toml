@@ -8,3 +8,12 @@ rust-version.workspace = true
 workspace = true
 
 [dependencies]
+launcher-core.workspace = true
+runner-wine.workspace = true
+tokio.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
