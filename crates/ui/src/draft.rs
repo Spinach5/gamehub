@@ -46,6 +46,13 @@ pub enum DraftAction {
     Runner(Option<Uuid>),
     Prefix(Option<PathBuf>),
     ClearPrefix,
+    Display(DisplayConfig),
+    ResolutionWidth(String),
+    ResolutionHeight(String),
+    RefreshRate(String),
+    Env(EnvAction),
+    Dll(DllAction),
+    Args(ArgsAction),
 }
 
 #[derive(Debug, Clone)]
@@ -53,6 +60,21 @@ pub enum EnvAction {
     Add,
     Remove(usize),
     Key { index: usize, key: String },
+    Value { index: usize, value: String },
+}
+
+#[derive(Debug, Clone)]
+pub enum DllAction {
+    Add,
+    Remove(usize),
+    Name { index: usize, name: String },
+    Mode { index: usize, mode: OverrideMode },
+}
+
+#[derive(Debug, Clone)]
+pub enum ArgsAction {
+    Add,
+    Remove(usize),
     Value { index: usize, value: String },
 }
 
@@ -75,6 +97,46 @@ pub fn apply_env_action(rows: &mut Vec<EnvRow>, action: EnvAction) {
         EnvAction::Value { index, value } => {
             if let Some(row) = rows.get_mut(index) {
                 row.value = value;
+            }
+        }
+    }
+}
+
+pub fn apply_dll_action(rows: &mut Vec<DllRow>, action: DllAction) {
+    match action {
+        DllAction::Add => rows.push(DllRow {
+            name: String::new(),
+            mode: OverrideMode::NativeBuiltin,
+        }),
+        DllAction::Remove(index) => {
+            if index < rows.len() {
+                rows.remove(index);
+            }
+        }
+        DllAction::Name { index, name } => {
+            if let Some(row) = rows.get_mut(index) {
+                row.name = name;
+            }
+        }
+        DllAction::Mode { index, mode } => {
+            if let Some(row) = rows.get_mut(index) {
+                row.mode = mode;
+            }
+        }
+    }
+}
+
+pub fn apply_args_action(rows: &mut Vec<String>, action: ArgsAction) {
+    match action {
+        ArgsAction::Add => rows.push(String::new()),
+        ArgsAction::Remove(index) => {
+            if index < rows.len() {
+                rows.remove(index);
+            }
+        }
+        ArgsAction::Value { index, value } => {
+            if let Some(row) = rows.get_mut(index) {
+                *row = value;
             }
         }
     }
@@ -289,6 +351,13 @@ impl GameDraft {
             DraftAction::Runner(value) => self.runner_id = value,
             DraftAction::Prefix(value) => self.prefix_path = value,
             DraftAction::ClearPrefix => self.prefix_path = None,
+            DraftAction::Display(display) => self.display = display,
+            DraftAction::ResolutionWidth(value) => self.resolution_width = value,
+            DraftAction::ResolutionHeight(value) => self.resolution_height = value,
+            DraftAction::RefreshRate(value) => self.refresh_rate = value,
+            DraftAction::Env(action) => apply_env_action(&mut self.env_rows, action),
+            DraftAction::Dll(action) => apply_dll_action(&mut self.dll_rows, action),
+            DraftAction::Args(action) => apply_args_action(&mut self.args_rows, action),
         }
     }
 
@@ -571,5 +640,66 @@ mod tests {
 
         let draft = GameDraft::from_game(&game);
         assert_eq!(draft.to_game().unwrap(), game);
+    }
+
+    #[test]
+    fn env_actions_add_edit_and_remove() {
+        let mut rows = Vec::new();
+        apply_env_action(&mut rows, EnvAction::Add);
+        apply_env_action(
+            &mut rows,
+            EnvAction::Key {
+                index: 0,
+                key: "A".into(),
+            },
+        );
+        apply_env_action(
+            &mut rows,
+            EnvAction::Value {
+                index: 0,
+                value: "1".into(),
+            },
+        );
+        assert_eq!(rows[0].key, "A");
+        assert_eq!(rows[0].value, "1");
+        apply_env_action(&mut rows, EnvAction::Remove(0));
+        assert!(rows.is_empty());
+    }
+
+    #[test]
+    fn dll_and_args_actions_are_bounded() {
+        let mut dlls = Vec::new();
+        apply_dll_action(&mut dlls, DllAction::Add);
+        apply_dll_action(
+            &mut dlls,
+            DllAction::Name {
+                index: 0,
+                name: "d3d11".into(),
+            },
+        );
+        apply_dll_action(
+            &mut dlls,
+            DllAction::Mode {
+                index: 0,
+                mode: OverrideMode::Native,
+            },
+        );
+        assert_eq!(dlls[0].name, "d3d11");
+        assert_eq!(dlls[0].mode, OverrideMode::Native);
+        apply_dll_action(&mut dlls, DllAction::Remove(99));
+        assert_eq!(dlls.len(), 1);
+
+        let mut args = Vec::new();
+        apply_args_action(&mut args, ArgsAction::Add);
+        apply_args_action(
+            &mut args,
+            ArgsAction::Value {
+                index: 0,
+                value: "-skip".into(),
+            },
+        );
+        assert_eq!(args, vec!["-skip".to_string()]);
+        apply_args_action(&mut args, ArgsAction::Remove(99));
+        assert_eq!(args.len(), 1);
     }
 }

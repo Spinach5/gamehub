@@ -45,6 +45,12 @@ pub enum SettingsAction {
     PrefixRoot(PathBuf),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LaunchOutcome {
+    pub exit_code: Option<i32>,
+    pub success: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AppError {
     pub title: String,
@@ -236,6 +242,11 @@ pub enum Message {
     DeleteFinished {
         target: DeleteTarget,
         result: Result<(), String>,
+    },
+    Launch(Uuid),
+    LaunchFinished {
+        game_id: Uuid,
+        result: Result<LaunchOutcome, String>,
     },
 }
 
@@ -662,6 +673,7 @@ impl App {
                 }
                 iced::Task::none()
             }
+            Message::Launch(_) | Message::LaunchFinished { .. } => iced::Task::none(),
         }
     }
 
