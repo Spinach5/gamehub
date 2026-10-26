@@ -1,0 +1,14 @@
+[package]
+name = "ui"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "gamehub"
+path = "src/main.rs"
+
+[dependencies]
