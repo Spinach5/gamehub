@@ -180,4 +180,45 @@ printf '#arch=win64\n' > "$WINEPREFIX/system.reg"
             })
         ));
     }
+
+    #[tokio::test]
+    async fn proton_initialization_uses_pfx_layout_and_run_subcommand() {
+        let _exec_guard = EXEC_LOCK.lock().await;
+        let dir = tempdir().unwrap();
+        let script = dir.path().join("proton");
+        let args_log = dir.path().join("args.log");
+        write_script(
+            &script,
+            &format!(
+                r#"#!/bin/sh
+printf '%s\n' "$@" > '{}'
+mkdir -p "$STEAM_COMPAT_DATA_PATH/pfx"
+printf '#arch=win64\n' > "$STEAM_COMPAT_DATA_PATH/pfx/system.reg"
+"#,
+                args_log.display()
+            ),
+        );
+
+        let prefix = dir.path().join("compat-data");
+        let plan = PrefixPlan::new(
+            prefix.clone(),
+            fake_runner(RunnerKind::Proton, script),
+            Arch::Win64,
+            dir.path().join("steam-client"),
+        );
+
+        assert!(
+            plan.initialize_with_timeout(Duration::from_secs(2))
+                .await
+                .unwrap()
+        );
+        assert!(prefix.join("pfx/system.reg").is_file());
+        assert!(!prefix.join("system.reg").exists());
+
+        let logged = fs::read_to_string(args_log).unwrap();
+        let args: Vec<&str> = logged.lines().collect();
+        assert_eq!(args[0], "run");
+        assert_eq!(args[1], "wineboot");
+        assert_eq!(args[2], "-u");
+    }
 }
