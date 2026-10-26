@@ -33,4 +33,6 @@ pub enum PrefixError {
     },
     #[error("reg add timed out for {dll}")]
     RegAddTimeout { dll: String },
+    #[error("refusing to delete a directory that is not an initialized prefix: {0:?}")]
+    RefusingToDeleteNonPrefix(PathBuf),
 }

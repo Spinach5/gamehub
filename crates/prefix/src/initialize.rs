@@ -221,4 +221,26 @@ printf '#arch=win64\n' > "$STEAM_COMPAT_DATA_PATH/pfx/system.reg"
         assert_eq!(args[1], "wineboot");
         assert_eq!(args[2], "-u");
     }
+
+    #[tokio::test]
+    #[ignore = "requires a working system wine; run manually"]
+    async fn initializes_with_real_system_wine() {
+        let runners = runner_wine::detect_system_wine().await;
+        let runner = runners.into_iter().next().expect("no system wine found");
+
+        let dir = tempdir().unwrap();
+        let plan = PrefixPlan::new(
+            dir.path().join("prefix"),
+            runner,
+            Arch::Win64,
+            dir.path().join("steam-client"),
+        );
+
+        assert!(
+            plan.initialize_with_timeout(Duration::from_secs(180))
+                .await
+                .unwrap()
+        );
+        assert!(plan.path.join("system.reg").is_file());
+    }
 }
