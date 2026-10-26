@@ -1,7 +1,9 @@
 use crate::app::{AppError, Message};
 use chrono::{DateTime, Local};
+use display::X11Output;
 use iced::Element;
 use iced::widget::{button, column, row, text};
+use launcher_core::{DisplayBackend, GamescopeMode, OverrideMode};
 use std::fmt;
 use std::path::Path;
 
@@ -129,5 +131,75 @@ pub fn runner_choice(
             .map(|runner| Choice::new(Some(id), runner.name.clone()))
             .unwrap_or_else(|| Choice::new(None, none_label)),
         None => Choice::new(None, none_label),
+    }
+}
+
+pub fn backend_choices() -> Vec<Choice<DisplayBackend>> {
+    vec![
+        Choice::new(DisplayBackend::Auto, "自动"),
+        Choice::new(DisplayBackend::X11, "X11"),
+        Choice::new(DisplayBackend::Wayland, "Wayland"),
+    ]
+}
+
+pub fn backend_choice(value: DisplayBackend) -> Choice<DisplayBackend> {
+    backend_choices()
+        .into_iter()
+        .find(|choice| choice.value == value)
+        .unwrap_or_else(|| Choice::new(DisplayBackend::Auto, "自动"))
+}
+
+pub fn gamescope_choices() -> Vec<Choice<GamescopeMode>> {
+    vec![
+        Choice::new(GamescopeMode::Off, "关闭"),
+        Choice::new(GamescopeMode::Auto, "自动（Wayland 且可用时）"),
+        Choice::new(GamescopeMode::Forced, "强制"),
+    ]
+}
+
+pub fn gamescope_choice(value: GamescopeMode) -> Choice<GamescopeMode> {
+    gamescope_choices()
+        .into_iter()
+        .find(|choice| choice.value == value)
+        .unwrap_or_else(|| Choice::new(GamescopeMode::Auto, "自动（Wayland 且可用时）"))
+}
+
+pub fn override_mode_choices() -> Vec<Choice<OverrideMode>> {
+    vec![
+        Choice::new(OverrideMode::Disabled, "禁用 (disabled)"),
+        Choice::new(OverrideMode::Native, "原生 (n)"),
+        Choice::new(OverrideMode::Builtin, "内置 (b)"),
+        Choice::new(OverrideMode::NativeBuiltin, "原生+内置 (n,b)"),
+    ]
+}
+
+pub fn override_mode_choice(value: OverrideMode) -> Choice<OverrideMode> {
+    override_mode_choices()
+        .into_iter()
+        .find(|choice| choice.value == value)
+        .unwrap_or_else(|| Choice::new(OverrideMode::NativeBuiltin, "原生+内置 (n,b)"))
+}
+
+pub fn monitor_choices(outputs: &[X11Output]) -> Vec<Choice<Option<String>>> {
+    let mut choices = vec![Choice::new(None, "（自动）")];
+    choices.extend(
+        outputs
+            .iter()
+            .filter(|output| output.connected)
+            .map(|output| Choice::new(Some(output.name.clone()), output.name.clone())),
+    );
+    choices
+}
+
+pub fn monitor_choice(outputs: &[X11Output], selected: Option<String>) -> Choice<Option<String>> {
+    match selected {
+        Some(name)
+            if outputs
+                .iter()
+                .any(|output| output.connected && output.name == name) =>
+        {
+            Choice::new(Some(name.clone()), name)
+        }
+        _ => Choice::new(None, "（自动）"),
     }
 }
