@@ -2,6 +2,55 @@
 
 本文件记录每个实施阶段完成的内容、与规格的偏差以及验证结果。
 
+## P8 — Runner / Prefix / Settings UI
+
+### 完成内容
+
+- Runner 管理：重新探测系统 Wine（覆盖已有记录按 binary_path 更新）、导入
+  Proton 目录（`validate_proton_dir` 校验并持久化）、设置/取消全局默认
+  Runner；列表按名称排序。
+- Prefix：详情页展示路径与状态（未创建/目录存在未初始化/已初始化/架构不
+  匹配）；选择/清除 Prefix 目录；后台创建/初始化；DXVK 目录选择与安装。
+- 设置：默认 Runner、Prefix 根目录、全局环境变量行编辑（增删改）与保存。
+- 删除：Game/Runner/Prefix 确认条；默认 Runner、被游戏引用的 Runner、
+  共享 Prefix、运行中的游戏/Prefix 均拒绝删除；单游戏 Prefix 删除会清空
+  DB 引用并移除目录。
+- 所有重活（探测、DB 写入、prefix 初始化、DXVK 安装、引用检查）留在
+  `tasks.rs`，`App::update` 只做状态转移；Runner/Prefix 变化后自动刷新
+  状态。
+
+### 与规格的偏差
+
+- `WineDetected` 使用 `sort_by_key` 以满足 clippy `unnecessary_sort_by`。
+- `iced::Task::perform` 的完成闭包是 `Fn`，`DeleteFinished` 使用
+  `target.clone()`。
+- 手工验证发现长 Prefix 路径会把确认条按钮挤成竖直窄条，确认条改为
+  Fill 宽度文本 + `WordOrGlyph` 换行。
+- 规格 U11 预期 `cargo test -p ui` 24+，实际为 23（P7 基线 16 + 规格 6 +
+  额外运行中 Prefix 保护 1）。
+- Prefix 创建成功后只更新 draft，仍需点击“保存”写入 DB；保持既有草稿
+  语义。
+- 本机无真实 Proton：用合成 Proton 目录验证导入、重启持久化与 `pfx/`
+  路径；运行中删除保护在 P9 接入 running map 后才能手工复核。
+
+### 验证
+
+- `cargo test -p ui`：23 passed；`cargo test --workspace`：153 passed，
+  1 ignored。
+- `cargo fmt --all --check`、`cargo clippy --workspace --all-targets -- -D warnings`、
+  `cargo build --workspace`：通过。
+- UI 手工验证（XWayland + XTEST 真实点击、桌面 portal 截图）：
+  - 断网探测得到 `wine-10.0 (Debian 10.0~repack-6)`；默认 Runner 设置/取消
+    重启后保留；
+  - 合成 Proton `GE-Proton9-99` 导入显示“已验证”，重启后仍在；
+  - 已保存游戏切换 Runner/Prefix 并保存；Wine prefix 约 11 秒初始化成功，
+    状态实时刷新；合成 Proton 在 `pfx/system.reg` 生成 registry；
+  - DXVK 3.1.1 安装后 DLL 出现在 `system32`/`syswow64`，`user.reg` 写入
+    `"d3d11"="native,builtin"`；
+  - 全局环境变量 `DXVK_HUD` 保存后重启保留；
+  - 删除默认/被引用 Runner、单游戏 Prefix 的提示与结果符合预期；
+  - 长路径删除确认条换行正常，取消后状态不变。
+
 ## P7 — UI 骨架
 
 ### 完成内容

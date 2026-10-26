@@ -82,7 +82,7 @@ DeleteFinished { target: DeleteTarget, result: Result<(), String> },
 - Modify: `crates/ui/src/tasks.rs`
 - Modify: `crates/ui/src/dialogs.rs`
 
-- [ ] **Step 1: 在 `draft.rs` 增加动作与行编辑器**
+- [x] **Step 1: 在 `draft.rs` 增加动作与行编辑器**
 
 ```rust
 #[derive(Debug, Clone)]
@@ -134,7 +134,7 @@ pub fn apply_env_action(rows: &mut Vec<EnvRow>, action: EnvAction) {
             DraftAction::ClearPrefix => self.prefix_path = None,
 ```
 
-- [ ] **Step 2: 在 `app.rs` 增加字段、枚举与设置序列化**
+- [x] **Step 2: 在 `app.rs` 增加字段、枚举与设置序列化**
 
 ```rust
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -208,7 +208,7 @@ pub enum SettingsAction {
 
 `Message` 增加本阶段的所有变体（见上方契约）。
 
-- [ ] **Step 3: 在 `tasks.rs` 增加任务**
+- [x] **Step 3: 在 `tasks.rs` 增加任务**
 
 ```rust
 use crate::app::DeleteTarget;
@@ -416,7 +416,7 @@ pub async fn delete_target(
 }
 ```
 
-- [ ] **Step 4: 扩展 `dialogs.rs`**
+- [x] **Step 4: 扩展 `dialogs.rs`**
 
 `DialogIntent` 增加 `PickProtonDir`、`PickPrefixDir`、`PickDxvkDir`、`PickPrefixRoot`。
 
@@ -433,12 +433,12 @@ pub async fn delete_target(
         | DialogIntent::PickPrefixRoot => dialog.pick_folder(),
 ```
 
-- [ ] **Step 5: 编译**
+- [x] **Step 5: 编译**
 
 Run: `cargo build -p ui`
 Expected: update 的 match 还不完整，出现非穷尽错误；在 U8 补 handler 后通过。本任务可以先只编译 `cargo check -p ui` 并记录错误数量。
 
-- [ ] **Step 6: 提交（与 U8 合并提交亦可）**
+- [x] **Step 6: 提交（与 U8 合并提交亦可）**
 
 ```bash
 git add crates/ui
@@ -452,7 +452,7 @@ git commit -m "feat(ui): extend app state and tasks for runners and prefixes"
 **Files:**
 - Modify: `crates/ui/src/app.rs`
 
-- [ ] **Step 1: 增加辅助函数**
+- [x] **Step 1: 增加辅助函数**
 
 在 `app.rs` 顶部把 `use prefix::PrefixStatus;` 改为 `use prefix::{PrefixPlan, PrefixStatus};`，然后在 `impl App` 中：
 
@@ -511,7 +511,7 @@ git commit -m "feat(ui): extend app state and tasks for runners and prefixes"
     }
 ```
 
-- [ ] **Step 2: 修改 `Draft`、`SelectGame` 与 `apply_draft_saved`**
+- [x] **Step 2: 修改 `Draft`、`SelectGame` 与 `apply_draft_saved`**
 
 `Message::Draft` 分支改为仅在影响 prefix 的动作后刷新状态（名称、环境变量等文本输入不触发查询）：
 
@@ -554,7 +554,7 @@ git commit -m "feat(ui): extend app state and tasks for runners and prefixes"
 
 并把函数最后原先的 `iced::Task::none()` 保留给失败分支。
 
-- [ ] **Step 3: 扩展 `DialogResult`**
+- [x] **Step 3: 扩展 `DialogResult`**
 
 ```rust
             DialogIntent::PickProtonDir => {
@@ -590,7 +590,7 @@ git commit -m "feat(ui): extend app state and tasks for runners and prefixes"
             }
 ```
 
-- [ ] **Step 4: 增加 Message handler**
+- [x] **Step 4: 增加 Message handler**
 
 ```rust
             Message::DetectSystemWine => {
@@ -919,12 +919,12 @@ git commit -m "feat(ui): extend app state and tasks for runners and prefixes"
 
 注意 `env_rows_to_map` 需要 `pub(crate)`；`SettingsAction::Env` 使用 `crate::draft::EnvAction`。
 
-- [ ] **Step 5: 编译**
+- [x] **Step 5: 编译**
 
 Run: `cargo build -p ui`
 Expected: 成功。
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```bash
 git add crates/ui
@@ -941,7 +941,7 @@ git commit -m "feat(ui): wire runner, prefix, settings and deletion handlers"
 - Modify: `crates/ui/src/views/settings.rs`
 - Modify: `crates/ui/src/app.rs`（确认条）
 
-- [ ] **Step 1: 在 `widgets.rs` 增加确认条与 runner 选项**
+- [x] **Step 1: 在 `widgets.rs` 增加确认条与 runner 选项**
 
 ```rust
 use crate::app::DeleteTarget;
@@ -987,7 +987,7 @@ pub fn runner_choice(
 }
 ```
 
-- [ ] **Step 2: `App::view` 渲染确认条**
+- [x] **Step 2: `App::view` 渲染确认条**
 
 把 `view` 的末尾改为：
 
@@ -1016,7 +1016,7 @@ pub fn runner_choice(
         content
 ```
 
-- [ ] **Step 3: 替换 `views/runners.rs`**
+- [x] **Step 3: 替换 `views/runners.rs`**
 
 ```rust
 use crate::app::{App, DeleteTarget, Message, Screen};
@@ -1072,7 +1072,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
 }
 ```
 
-- [ ] **Step 4: 替换 `views/settings.rs`**
+- [x] **Step 4: 替换 `views/settings.rs`**
 
 ```rust
 use crate::app::{App, Message, Screen, SettingsAction};
@@ -1158,12 +1158,12 @@ pub fn view(app: &App) -> Element<'_, Message> {
 }
 ```
 
-- [ ] **Step 5: 编译**
+- [x] **Step 5: 编译**
 
 Run: `cargo build -p ui`
 Expected: 成功。
 
-- [ ] **Step 6: 手工验证**
+- [x] **Step 6: 手工验证**
 
 Run: `cargo run -p ui`：
 
@@ -1173,7 +1173,7 @@ Run: `cargo run -p ui`：
 4. 设置 → 添加全局环境变量 → 保存 → 重启仍在。
 5. 删除被引用的 Runner 会被拒绝；默认 Runner 删除被拒绝。
 
-- [ ] **Step 7: 提交**
+- [x] **Step 7: 提交**
 
 ```bash
 git add crates/ui
@@ -1187,7 +1187,7 @@ git commit -m "feat(ui): add runner manager and settings forms"
 **Files:**
 - Modify: `crates/ui/src/views/game_detail.rs`
 
-- [ ] **Step 1: 在现有 `basic` 之后追加兼容层区块**
+- [x] **Step 1: 在现有 `basic` 之后追加兼容层区块**
 
 ```rust
     let runner_section = {
@@ -1309,12 +1309,12 @@ fn prefix_status_label(status: Option<&PrefixStatus>) -> &'static str {
 
 注意：`prefix_status` 在 `SelectGame` 和保存后自动刷新；新建草稿尚未保存时不会解析。
 
-- [ ] **Step 2: 编译**
+- [x] **Step 2: 编译**
 
 Run: `cargo build -p ui`
 Expected: 成功。若 `PrefixStatus` 不是 `Copy`，`app.prefix_status.as_ref()` 仍可用。
 
-- [ ] **Step 3: 手工验证**
+- [x] **Step 3: 手工验证**
 
 1. 打开已保存游戏 → Runner 选择、默认 Runner 选项出现。
 2. 选择系统 Wine → “创建 / 初始化” → 状态从“未创建”变为“已初始化”（本机 Wine 10.0）。
@@ -1322,7 +1322,7 @@ Expected: 成功。若 `PrefixStatus` 不是 `Copy`，`app.prefix_status.as_ref(
 4. 删除共享 prefix 被拒绝；删除默认 Runner 被拒绝。
 5. 新建草稿时 prefix 按钮禁用并提示先保存。
 
-- [ ] **Step 4: 提交**
+- [x] **Step 4: 提交**
 
 ```bash
 git add crates/ui
@@ -1337,7 +1337,7 @@ git commit -m "feat(ui): add runner, prefix and dxvk controls to game detail"
 - Modify: `crates/ui/src/tasks.rs`
 - Modify: `CHANGELOG.md`
 
-- [ ] **Step 1: 追加测试**
+- [x] **Step 1: 追加测试**
 
 ```rust
     use launcher_core::{RunnerKind, RunnerSource};
@@ -1535,12 +1535,12 @@ git commit -m "feat(ui): add runner, prefix and dxvk controls to game detail"
 
 `game` helper 已有；`Runner` 类型在文件顶部已导入。`HashMap` 导入在测试模块内。
 
-- [ ] **Step 2: 运行测试**
+- [x] **Step 2: 运行测试**
 
 Run: `cargo test -p ui`
 Expected: 全部通过（24+）。
 
-- [ ] **Step 3: 更新 CHANGELOG**
+- [x] **Step 3: 更新 CHANGELOG**
 
 ```markdown
 ## P8 — Runner / Prefix / Settings UI
@@ -1554,7 +1554,7 @@ Expected: 全部通过（24+）。
 验证：`cargo test -p ui`；本机 Wine 10.0 创建 prefix 成功。
 ```
 
-- [ ] **Step 4: 提交**
+- [x] **Step 4: 提交**
 
 ```bash
 git add crates/ui CHANGELOG.md
@@ -1565,16 +1565,50 @@ git commit -m "test(ui): cover deletion guards and settings tasks"
 
 ## P8 验收
 
-- [ ] `cargo test -p ui` 通过。
-- [ ] 断网状态下“重新探测系统 Wine”得到本机 `wine-10.0`。
-- [ ] 导入 Proton 目录后 `verified=true`，重启仍在。
-- [ ] 默认 Runner 保存后重启保留。
-- [ ] 为已保存游戏创建 prefix，UI 不冻结；Proton 使用 `pfx/`。
-- [ ] DXVK 安装后文件进入正确目录并写入 registry override。
-- [ ] 删除被游戏引用的 Runner、默认 Runner 被拒绝。
-- [ ] 删除共享 prefix 被拒绝；删除单游戏 prefix 会清除引用并删除目录。
-- [ ] 游戏运行中不能删除其 prefix 或游戏记录。
+- [x] `cargo test -p ui` 通过。
+- [x] 断网状态下“重新探测系统 Wine”得到本机 `wine-10.0`。
+- [x] 导入 Proton 目录后 `verified=true`，重启仍在。（本机无真实 Proton，使用合成
+  Proton 目录验证，见实施记录。）
+- [x] 默认 Runner 保存后重启保留。
+- [x] 为已保存游戏创建 prefix，UI 不冻结；Proton 使用 `pfx/`。
+- [x] DXVK 安装后文件进入正确目录并写入 registry override。
+- [x] 删除被游戏引用的 Runner、默认 Runner 被拒绝。
+- [x] 删除共享 prefix 被拒绝；删除单游戏 prefix 会清除引用并删除目录。
+- [x] 游戏运行中不能删除其 prefix 或游戏记录。（删除保护由单元测试覆盖；运行中
+  状态在 P9 接入后手工复核。）
 
 ## 实施记录
 
-（实施后填写：Proton 版本、DXVK 版本、prefix 创建耗时、偏差。）
+- 环境：Wine `wine-10.0 (Debian 10.0~repack-6)`；本机没有真实 Proton，使用
+  合成 Proton 目录 `ge-proton9-99`（`proton` 脚本仅写 `pfx/system.reg`，
+  `version` 为 `GE-Proton9-99`）走完导入 → 重启持久化 → 创建 prefix 的 UI
+  流程；DXVK 3.1.1（`~/.config/heroic/tools/dxvk/dxvk-3.1.1`）。
+- Prefix 创建耗时：Wine 约 11 秒（阻塞任务线程，UI 保持响应）；合成 Proton
+  立即返回。Proton prefix 的 registry 位于 `pfx/system.reg`，与规格一致。
+- 测试：`cargo test -p ui` 23 passed（P7 16 + 规格 U11 6 + 额外
+  `deleting_running_prefix_is_rejected` 1）；`cargo test --workspace`
+  153 passed，1 ignored；fmt/clippy/build 全量通过。
+- 手工验证（XWayland + XTEST 点击、桌面 portal 截图）：
+  - Runner 管理：断网重新探测得到 `wine-10.0`；设为默认与取消默认均即时
+    生效；导入合成 Proton 后显示“已验证”，重启后仍在；被游戏引用和全局默认
+    的 Runner 删除均弹出中文拒绝原因。
+  - Prefix：已保存游戏的“未创建 → 已初始化”状态刷新正确；创建后自动写入
+    draft 的 prefix 路径，需再“保存”才持久化；删除单游戏 Prefix 会删除目录、
+    清空 DB 引用并回到“未创建”；长路径确认条会换行，按钮不再被挤压。
+  - DXVK：选择 `dxvk-3.1.1` 安装成功后，d3d11/dxgi 等 DLL 出现在
+    `system32`/`syswow64`，`user.reg` 写入 `"d3d11"="native,builtin"`。
+  - 设置：全局环境变量（含大写键名 `DXVK_HUD`）保存后重启保留；默认 Runner
+    与 Prefix 根目录展示正确。
+- 偏差：
+  - `WineDetected` 使用 `sort_by_key`（clippy `unnecessary_sort_by`）。
+  - `iced::Task::perform` 的完成闭包是 `Fn`，`DeleteFinished` 需要
+    `target.clone()`。
+  - 手工验证发现长 Prefix 路径把确认条按钮挤成窄条，改为 Fill +
+    `WordOrGlyph` 换行。
+  - 规格 U11 预期 `cargo test -p ui` 24+，实际基线 16 + 7 = 23；额外测试
+    覆盖运行中 Prefix 删除保护。
+  - 运行中删除保护无法在 UI 手工触达（running map 在 P9 才接入），由
+    `deleting_game_removes_row_and_rejects_running` 与
+    `deleting_running_prefix_is_rejected` 覆盖。
+  - 合成 Proton 只验证导入/持久化/`pfx` 路径；Proton 下的 DXVK 安装沿用
+    共享实现，未额外手工验证。

@@ -325,4 +325,241 @@ mod tests {
             Some(&"/tmp/prefixes".to_string())
         );
     }
+
+    fn runner_value(path: PathBuf) -> Runner {
+        Runner {
+            id: Uuid::new_v4(),
+            kind: RunnerKind::Wine,
+            name: "Wine".into(),
+            binary_path: path,
+            root_dir: PathBuf::from("/usr/bin"),
+            arch: Arch::Win64,
+            source: RunnerSource::System,
+            verified: true,
+            version_string: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn persist_runners_updates_existing_binary_path() {
+        let db = Arc::new(Mutex::new(Db::open_in_memory().unwrap()));
+        let runner = runner_value(PathBuf::from("/usr/bin/wine"));
+        let stored = persist_runners(db.clone(), vec![runner.clone()])
+            .await
+            .unwrap();
+        assert_eq!(stored.len(), 1);
+
+        let mut duplicate = Runner {
+            id: Uuid::new_v4(),
+            ..runner
+        };
+        duplicate.version_string = Some("wine-10.0".into());
+        let stored = persist_runners(db, vec![duplicate]).await.unwrap();
+        assert_eq!(stored.len(), 1);
+        assert_eq!(stored[0].version_string.as_deref(), Some("wine-10.0"));
+    }
+
+    #[tokio::test]
+    async fn settings_round_trip_through_tasks() {
+        let db = Arc::new(Mutex::new(Db::open_in_memory().unwrap()));
+        let values = BTreeMap::from([
+            (
+                crate::app::SETTING_GLOBAL_ENV.to_string(),
+                Some(r#"{"DXVK_HUD":"fps"}"#.to_string()),
+            ),
+            (
+                crate::app::SETTING_PREFIX_ROOT.to_string(),
+                Some("/tmp/prefixes".to_string()),
+            ),
+            (crate::app::SETTING_DEFAULT_RUNNER_ID.to_string(), None),
+        ]);
+        save_settings(db.clone(), values).await.unwrap();
+
+        let stored = db.lock().unwrap().get_all_settings().unwrap();
+        assert_eq!(
+            stored[crate::app::SETTING_GLOBAL_ENV],
+            r#"{"DXVK_HUD":"fps"}"#
+        );
+        assert_eq!(stored[crate::app::SETTING_PREFIX_ROOT], "/tmp/prefixes");
+        assert!(!stored.contains_key(crate::app::SETTING_DEFAULT_RUNNER_ID));
+    }
+
+    #[tokio::test]
+    async fn deleting_single_use_prefix_clears_game_reference_and_directory() {
+        let dir = tempdir().unwrap();
+        let exe = dir.path().join("game.exe");
+        fs::write(&exe, b"MZ").unwrap();
+        let prefix = dir.path().join("prefix");
+        fs::create_dir(&prefix).unwrap();
+        fs::write(prefix.join("system.reg"), "#arch=win64\n").unwrap();
+
+        let db = Db::open_in_memory().unwrap();
+        let mut value = game(exe);
+        value.prefix_path = Some(prefix.clone());
+        db.insert_game(&value).unwrap();
+        let db = Arc::new(Mutex::new(db));
+
+        delete_target(
+            db.clone(),
+            DeleteTarget::Prefix {
+                game_id: value.id,
+                path: prefix.clone(),
+            },
+            HashMap::new(),
+            None,
+        )
+        .await
+        .unwrap();
+
+        assert!(!prefix.exists());
+        assert_eq!(
+            db.lock()
+                .unwrap()
+                .get_game(value.id)
+                .unwrap()
+                .unwrap()
+                .prefix_path,
+            None
+        );
+    }
+
+    #[tokio::test]
+    async fn deleting_running_prefix_is_rejected() {
+        let dir = tempdir().unwrap();
+        let exe = dir.path().join("game.exe");
+        fs::write(&exe, b"MZ").unwrap();
+        let prefix = dir.path().join("prefix");
+        fs::create_dir(&prefix).unwrap();
+        fs::write(prefix.join("system.reg"), "#arch=win64\n").unwrap();
+
+        let db = Db::open_in_memory().unwrap();
+        let mut value = game(exe);
+        value.prefix_path = Some(prefix.clone());
+        db.insert_game(&value).unwrap();
+        let db = Arc::new(Mutex::new(db));
+
+        let result = delete_target(
+            db.clone(),
+            DeleteTarget::Prefix {
+                game_id: value.id,
+                path: prefix.clone(),
+            },
+            HashMap::from([(value.id, prefix.clone())]),
+            None,
+        )
+        .await;
+
+        assert!(result.is_err());
+        assert!(prefix.exists());
+        assert!(
+            db.lock()
+                .unwrap()
+                .get_game(value.id)
+                .unwrap()
+                .unwrap()
+                .prefix_path
+                .is_some()
+        );
+    }
+
+    #[tokio::test]
+    async fn deleting_shared_prefix_is_rejected() {
+        let dir = tempdir().unwrap();
+        let exe_a = dir.path().join("a.exe");
+        let exe_b = dir.path().join("b.exe");
+        fs::write(&exe_a, b"MZ").unwrap();
+        fs::write(&exe_b, b"MZ").unwrap();
+        let prefix = dir.path().join("shared");
+        fs::create_dir(&prefix).unwrap();
+        fs::write(prefix.join("system.reg"), "#arch=win64\n").unwrap();
+
+        let db = Db::open_in_memory().unwrap();
+        let mut a = game(exe_a);
+        a.prefix_path = Some(prefix.clone());
+        let mut b = game(exe_b);
+        b.prefix_path = Some(prefix.clone());
+        db.insert_game(&a).unwrap();
+        db.insert_game(&b).unwrap();
+        let db = Arc::new(Mutex::new(db));
+
+        let result = delete_target(
+            db,
+            DeleteTarget::Prefix {
+                game_id: a.id,
+                path: prefix.clone(),
+            },
+            HashMap::new(),
+            None,
+        )
+        .await;
+        assert!(result.is_err());
+        assert!(prefix.exists());
+    }
+
+    #[tokio::test]
+    async fn deleting_referenced_or_default_runner_is_rejected() {
+        let dir = tempdir().unwrap();
+        let exe = dir.path().join("game.exe");
+        fs::write(&exe, b"MZ").unwrap();
+        let db = Db::open_in_memory().unwrap();
+        let runner = runner_value(dir.path().join("wine"));
+        let default_only = runner_value(dir.path().join("wine-default"));
+        db.insert_runner(&runner).unwrap();
+        db.insert_runner(&default_only).unwrap();
+        let mut value = game(exe);
+        value.runner_id = Some(runner.id);
+        db.insert_game(&value).unwrap();
+        let db = Arc::new(Mutex::new(db));
+
+        assert!(
+            delete_target(
+                db.clone(),
+                DeleteTarget::Runner(runner.id),
+                HashMap::new(),
+                None,
+            )
+            .await
+            .is_err()
+        );
+
+        assert!(
+            delete_target(
+                db,
+                DeleteTarget::Runner(default_only.id),
+                HashMap::new(),
+                Some(default_only.id),
+            )
+            .await
+            .is_err()
+        );
+    }
+
+    #[tokio::test]
+    async fn deleting_game_removes_row_and_rejects_running() {
+        let dir = tempdir().unwrap();
+        let exe = dir.path().join("game.exe");
+        fs::write(&exe, b"MZ").unwrap();
+        let db = Db::open_in_memory().unwrap();
+        let value = game(exe);
+        db.insert_game(&value).unwrap();
+        let db = Arc::new(Mutex::new(db));
+
+        let mut running = HashMap::new();
+        running.insert(value.id, PathBuf::from("/tmp/prefix"));
+        assert!(
+            delete_target(db.clone(), DeleteTarget::Game(value.id), running, None,)
+                .await
+                .is_err()
+        );
+
+        delete_target(
+            db.clone(),
+            DeleteTarget::Game(value.id),
+            HashMap::new(),
+            None,
+        )
+        .await
+        .unwrap();
+        assert!(db.lock().unwrap().get_game(value.id).unwrap().is_none());
+    }
 }
