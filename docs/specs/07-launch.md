@@ -1,6 +1,6 @@
 # P6 启动管线 Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** 实现 `launch`：runner 解析、启动前校验、环境变量合成、DLL override 字符串、gamescope 包装、spawn。
 
@@ -63,7 +63,7 @@ pub async fn spawn_plan(
 - Create: `crates/launch/src/resolve.rs`
 - Modify: `crates/launch/src/lib.rs`
 
-- [ ] **Step 1: 写错误类型**
+- [x] **Step 1: 写错误类型**
 
 `crates/launch/src/error.rs`：
 
@@ -111,7 +111,7 @@ pub enum LaunchError {
 }
 ```
 
-- [ ] **Step 2: 写解析测试**
+- [x] **Step 2: 写解析测试**
 
 `crates/launch/src/resolve.rs`：
 
@@ -218,12 +218,12 @@ pub use error::LaunchError;
 pub use resolve::resolve_runner;
 ```
 
-- [ ] **Step 3: 运行并确认失败**
+- [x] **Step 3: 运行并确认失败**
 
 Run: `cargo test -p launch`
 Expected: 编译失败，`resolve_runner` 未定义。
 
-- [ ] **Step 4: 实现**
+- [x] **Step 4: 实现**
 
 ```rust
 use launcher_core::{Game, Runner};
@@ -253,12 +253,12 @@ pub fn resolve_runner(
 }
 ```
 
-- [ ] **Step 5: 运行测试**
+- [x] **Step 5: 运行测试**
 
 Run: `cargo test -p launch`
 Expected: 5 passed。
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```bash
 git add crates/launch
@@ -273,7 +273,7 @@ git commit -m "feat(launch): resolve game runner or global default"
 - Create: `crates/launch/src/env.rs`
 - Modify: `crates/launch/src/lib.rs`
 
-- [ ] **Step 1: 写测试**
+- [x] **Step 1: 写测试**
 
 `crates/launch/src/env.rs`：
 
@@ -347,12 +347,12 @@ mod tests {
 }
 ```
 
-- [ ] **Step 2: 运行并确认失败**
+- [x] **Step 2: 运行并确认失败**
 
 Run: `cargo test -p launch`
 Expected: 编译失败，`build_dll_overrides` 未定义。
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 ```rust
 use launcher_core::{DllOverride, OverrideMode};
@@ -390,12 +390,12 @@ mod env;
 pub use env::build_dll_overrides;
 ```
 
-- [ ] **Step 4: 运行测试**
+- [x] **Step 4: 运行测试**
 
 Run: `cargo test -p launch`
 Expected: 8 passed。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add crates/launch
@@ -409,7 +409,7 @@ git commit -m "feat(launch): build WINEDLLOVERRIDES from structured overrides"
 **Files:**
 - Modify: `crates/launch/src/env.rs`
 
-- [ ] **Step 1: 写测试**
+- [x] **Step 1: 写测试**
 
 在 `env.rs` 的测试模块追加测试辅助与用例：
 
@@ -609,12 +609,12 @@ git commit -m "feat(launch): build WINEDLLOVERRIDES from structured overrides"
 
 `WineContext` 导入在测试中没有直接使用，删除；上面测试只用 `build_env`。
 
-- [ ] **Step 2: 运行并确认失败**
+- [x] **Step 2: 运行并确认失败**
 
 Run: `cargo test -p launch`
 Expected: 编译失败，`LaunchRequest`/`build_env` 未定义。
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 在 `env.rs` 加入：
 
@@ -764,12 +764,12 @@ pub struct LaunchPlan {
 
 `pub use plan::{LaunchPlan, LaunchRequest};`（`validate`/`build_plan` 在 L4 加入后再导出）。
 
-- [ ] **Step 4: 运行测试**
+- [x] **Step 4: 运行测试**
 
 Run: `cargo test -p launch`
 Expected: 17 passed（L1 5 + L2 3 + L3 9）。若某些测试因 `build_env` 未导出失败，检查 `lib.rs`。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add crates/launch
@@ -783,7 +783,7 @@ git commit -m "feat(launch): compose environment with deterministic precedence"
 **Files:**
 - Modify: `crates/launch/src/plan.rs`
 
-- [ ] **Step 1: 写校验与计划测试**
+- [x] **Step 1: 写校验与计划测试**
 
 在 `plan.rs` 的测试模块中：
 
@@ -1027,12 +1027,12 @@ mod tests {
 ```
 
 
-- [ ] **Step 2: 运行并确认失败**
+- [x] **Step 2: 运行并确认失败**
 
 Run: `cargo test -p launch`
 Expected: 编译失败，`validate`/`build_plan` 未定义。
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 在 `plan.rs` 追加：
 
@@ -1179,12 +1179,12 @@ pub use plan::{build_plan, validate, LaunchPlan, LaunchRequest};
 pub use resolve::resolve_runner;
 ```
 
-- [ ] **Step 4: 运行测试**
+- [x] **Step 4: 运行测试**
 
 Run: `cargo test -p launch`
 Expected: 29 passed（5 + 3 + 9 + 12）。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add crates/launch
@@ -1199,7 +1199,7 @@ git commit -m "feat(launch): validate launch requests and build launch plans"
 - Create: `crates/launch/src/spawn.rs`
 - Modify: `crates/launch/src/lib.rs`
 
-- [ ] **Step 1: 写测试**
+- [x] **Step 1: 写测试**
 
 `crates/launch/src/spawn.rs`：
 
@@ -1263,12 +1263,12 @@ mod tests {
 }
 ```
 
-- [ ] **Step 2: 运行并确认失败**
+- [x] **Step 2: 运行并确认失败**
 
 Run: `cargo test -p launch`
 Expected: 编译失败，`spawn_plan` 未定义。
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 ```rust
 use crate::{LaunchError, LaunchPlan};
@@ -1307,12 +1307,12 @@ mod spawn;
 pub use spawn::spawn_plan;
 ```
 
-- [ ] **Step 4: 运行测试**
+- [x] **Step 4: 运行测试**
 
 Run: `cargo test -p launch`
 Expected: 32 passed。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add crates/launch
@@ -1326,7 +1326,7 @@ git commit -m "feat(launch): spawn launch plans with deterministic environment"
 **Files:**
 - Modify: `CHANGELOG.md`
 
-- [ ] **Step 1: 全量检查**
+- [x] **Step 1: 全量检查**
 
 Run:
 
@@ -1338,7 +1338,7 @@ cargo test -p launch
 
 Expected: 全部通过。
 
-- [ ] **Step 2: 更新 CHANGELOG**
+- [x] **Step 2: 更新 CHANGELOG**
 
 ```markdown
 ## P6 — 启动管线
@@ -1353,7 +1353,7 @@ Expected: 全部通过。
 验证：`cargo test -p launch`。
 ```
 
-- [ ] **Step 3: 提交**
+- [x] **Step 3: 提交**
 
 ```bash
 git add crates/launch CHANGELOG.md
@@ -1364,16 +1364,30 @@ git commit -m "chore(launch): finish launch phase"
 
 ## P6 验收
 
-- [ ] `cargo test -p launch` 通过。
-- [ ] `resolve_runner` 不自动挑唯一 runner；没有选择/默认时报 `NoRunnerSelected`。
-- [ ] `Disabled` 输出 `disabled`，不是 `n`。
-- [ ] 继承环境中的 `WINEDLLOVERRIDES` 被删除；全局/游戏级手动设置则拒绝启动。
-- [ ] 优先级测试覆盖 `base < global < game`。
-- [ ] X11 且未使用 gamescope 时才注入 `__GL_SYNC_DISPLAY_DEVICE`。
-- [ ] gamescope 生效时参数以 `--` 分隔，后面紧跟 runner 命令。
-- [ ] `spawn_plan` 使用 `env_clear`，stdin/stdout 为 null，stderr 继承。
-- [ ] Proton + Win32 游戏仍使用 win64 prefix，并能通过校验。
+- [x] `cargo test -p launch` 通过。
+- [x] `resolve_runner` 不自动挑唯一 runner；没有选择/默认时报 `NoRunnerSelected`。
+- [x] `Disabled` 输出 `disabled`，不是 `n`。
+- [x] 继承环境中的 `WINEDLLOVERRIDES` 被删除；全局/游戏级手动设置则拒绝启动。
+- [x] 优先级测试覆盖 `base < global < game`。
+- [x] X11 且未使用 gamescope 时才注入 `__GL_SYNC_DISPLAY_DEVICE`。
+- [x] gamescope 生效时参数以 `--` 分隔，后面紧跟 runner 命令。
+- [x] `spawn_plan` 使用 `env_clear`，stdin/stdout 为 null，stderr 继承。
+- [x] Proton + Win32 游戏仍使用 win64 prefix，并能通过校验。
 
 ## 实施记录
 
-（实施后填写：gamescope 版本、spawn 测试结果、偏差。）
+- gamescope：本机未安装（`command -v gamescope` 无结果），包装逻辑由
+  plan 测试中的伪造可执行文件覆盖；Forced 且缺失二进制的拒绝路径有独立测试。
+- spawn：`spawn_plan` 的三个测试连续运行 10 次全部通过（每次 3 passed），
+  验证了 `env_clear`（HOME 为空、FOO 保留）、退出码传递与缺失程序错误。
+- 测试计数：L1=5、L2=8（累计）、L3=17、L4=29、L5=32，与计划一致；
+  workspace 合计 130 passed、1 ignored。
+- 偏差：
+  - L1 测试片段漏了 `std::path::PathBuf` 导入，已补；
+    默认 runner 测试的切片改用 `std::slice::from_ref` 以通过
+    `clippy::cloned_ref_to_slice_refs`。
+  - L4 Proton 测试的 `fs::create_dir("compat/pfx")` 因父目录不存在会 panic，
+    改为 `create_dir_all`。
+  - L4 两个测试的 `let mut request` 未发生修改，去掉 `mut`。
+  - `validate` 的 working_dir 检查用 `filter` 形式替代嵌套 `if`，
+    避免 `clippy::collapsible_if`，行为不变。

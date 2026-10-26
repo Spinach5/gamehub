@@ -2,6 +2,48 @@
 
 本文件记录每个实施阶段完成的内容、与规格的偏差以及验证结果。
 
+## P6 — 启动管线
+
+### 完成内容
+
+- runner 解析：游戏级 `runner_id` 优先且必须存在；否则使用全局默认，
+  未配置默认报 `NoRunnerSelected`，绝不自动挑选唯一 runner。
+- `WINEDLLOVERRIDES` 只由结构化 override 生成（`disabled`/`n`/`b`/`n,b`，
+  输入顺序、分号分隔、空白名称跳过）；继承环境中的旧值被删除，
+  全局或游戏级手动设置直接报 `DllOverrideConflict`。
+- 环境优先级：继承 → runner base env → global → game → X11 monitor →
+  结构化 DLL override；键名与 DLL 名均校验。
+- `__GL_SYNC_DISPLAY_DEVICE` 仅在 X11 且 gamescope 未生效时注入。
+- 启动前校验：exe 是文件、runner 可执行、working_dir 存在、prefix 已初始化
+  且架构匹配、Forced gamescope 必须有二进制、env/DLL 配置合法。
+  `build_plan` 内部先调用 `validate`。
+- `build_plan` 经 `WineContext` 构造 runner 命令（Wine 直接执行 exe，
+  Proton 加 `run`），必要时以 gamescope 参数包裹，cwd 回退到 exe 父目录。
+- `spawn_plan`：`env_clear` + 合成环境、stdin/stdout null、stderr 继承、
+  `kill_on_drop(false)`，spawn 失败携带程序路径。
+
+### 与规格的偏差
+
+- L1 测试片段缺少 `std::path::PathBuf` 导入，已补上；
+  `default_runner_is_used_when_game_has_none` 的切片改用
+  `std::slice::from_ref` 以通过 clippy。
+- L4 计划中的 Proton 测试用 `fs::create_dir("compat/pfx")`，但父目录
+  `compat/` 尚不存在，改为 `create_dir_all`。
+- L4 两个测试的 `let mut request` 并无修改，去掉 `mut`（clippy）。
+- `validate` 的 working_dir 检查使用 `filter` 形式，避免 clippy
+  `collapsible_if`；行为与计划一致。
+- 测试计数与计划一致：L1=5、L2=8、L3=17、L4=29、L5=32。
+
+### 验证
+
+- 本机未安装 gamescope，gamescope 包装路径由伪造可执行文件覆盖，
+  `Forced` 且无二进制的拒绝路径有独立测试。
+- `spawn::tests` 连续运行 10 次全部通过（3 passed / 次）。
+- `cargo test -p launch`：32 passed；
+  `cargo test --workspace`：130 passed，1 ignored。
+- `cargo fmt --all --check`、`cargo clippy --workspace --all-targets -- -D warnings`、
+  `cargo build --workspace`：通过。
+
 ## P5 — display
 
 ### 完成内容
