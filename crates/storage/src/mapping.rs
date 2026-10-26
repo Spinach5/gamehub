@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use launcher_core::Arch;
+use launcher_core::{Arch, RunnerKind, RunnerSource};
 use rusqlite::Row;
 use uuid::Uuid;
 
@@ -34,6 +34,20 @@ pub(crate) fn parse_arch(column: &'static str, value: &str) -> Result<Arch, Stor
         column,
         value: value.to_owned(),
     })
+}
+
+pub(crate) fn parse_runner_kind(
+    column: &'static str,
+    value: &str,
+) -> Result<RunnerKind, StorageError> {
+    RunnerKind::parse(value).ok_or_else(|| StorageError::CorruptValue {
+        column,
+        value: value.to_owned(),
+    })
+}
+
+pub(crate) fn source_from_json(value: &str) -> Result<RunnerSource, StorageError> {
+    Ok(serde_json::from_str(value)?)
 }
 
 pub(crate) fn path_from_string(value: String) -> PathBuf {
@@ -82,5 +96,29 @@ pub(crate) fn row_to_game(row: &Row<'_>) -> Result<launcher_core::Game, StorageE
         args: serde_json::from_str(&args_json)?,
         created_at,
         last_played_at,
+    })
+}
+
+pub(crate) fn row_to_runner(row: &Row<'_>) -> Result<launcher_core::Runner, StorageError> {
+    let id: String = row.get(0)?;
+    let kind: String = row.get(1)?;
+    let name: String = row.get(2)?;
+    let binary_path: String = row.get(3)?;
+    let root_dir: String = row.get(4)?;
+    let arch: String = row.get(5)?;
+    let source_json: String = row.get(6)?;
+    let verified: i64 = row.get(7)?;
+    let version_string: Option<String> = row.get(8)?;
+
+    Ok(launcher_core::Runner {
+        id: parse_uuid("runners.id", &id)?,
+        kind: parse_runner_kind("runners.kind", &kind)?,
+        name,
+        binary_path: PathBuf::from(binary_path),
+        root_dir: PathBuf::from(root_dir),
+        arch: parse_arch("runners.arch", &arch)?,
+        source: source_from_json(&source_json)?,
+        verified: verified != 0,
+        version_string,
     })
 }

@@ -4,7 +4,7 @@ mod schema;
 
 use std::path::Path;
 
-use mapping::{optional_path_to_string, path_to_string, row_to_game};
+use mapping::{optional_path_to_string, path_to_string, row_to_game, row_to_runner};
 use rusqlite::Connection;
 use rusqlite::params;
 use uuid::Uuid;
@@ -15,6 +15,9 @@ pub use launcher_core::{AppPaths, Game, Runner};
 const GAME_COLUMNS: &str = "id, name, executable_path, working_dir, runner_id, prefix_path, \
                             arch, display_json, env_overrides_json, dll_overrides_json, \
                             args_json, created_at, last_played_at";
+
+const RUNNER_COLUMNS: &str =
+    "id, kind, name, binary_path, root_dir, arch, source_json, verified, version_string";
 
 pub struct Db {
     conn: Connection,
@@ -159,6 +162,113 @@ impl Db {
         }
         Ok(())
     }
+
+    pub fn insert_runner(&self, runner: &Runner) -> Result<(), StorageError> {
+        let binary_path = path_to_string(&runner.binary_path, "runners.binary_path")?;
+        let root_dir = path_to_string(&runner.root_dir, "runners.root_dir")?;
+        let source_json = serde_json::to_string(&runner.source)?;
+
+        self.conn
+            .execute(
+                "INSERT INTO runners (id, kind, name, binary_path, root_dir, arch, source_json,
+                                      verified, version_string)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                params![
+                    runner.id.to_string(),
+                    runner.kind.as_str(),
+                    runner.name,
+                    binary_path,
+                    root_dir,
+                    runner.arch.as_str(),
+                    source_json,
+                    if runner.verified { 1_i64 } else { 0_i64 },
+                    runner.version_string,
+                ],
+            )
+            .map_err(|error| map_runner_error(error, runner))?;
+        Ok(())
+    }
+
+    pub fn update_runner(&self, runner: &Runner) -> Result<(), StorageError> {
+        let binary_path = path_to_string(&runner.binary_path, "runners.binary_path")?;
+        let root_dir = path_to_string(&runner.root_dir, "runners.root_dir")?;
+        let source_json = serde_json::to_string(&runner.source)?;
+
+        let changed = self
+            .conn
+            .execute(
+                "UPDATE runners SET kind = ?2, name = ?3, binary_path = ?4, root_dir = ?5,
+                                    arch = ?6, source_json = ?7, verified = ?8, version_string = ?9
+                 WHERE id = ?1",
+                params![
+                    runner.id.to_string(),
+                    runner.kind.as_str(),
+                    runner.name,
+                    binary_path,
+                    root_dir,
+                    runner.arch.as_str(),
+                    source_json,
+                    if runner.verified { 1_i64 } else { 0_i64 },
+                    runner.version_string,
+                ],
+            )
+            .map_err(|error| map_runner_error(error, runner))?;
+
+        if changed == 0 {
+            return Err(StorageError::RunnerNotFound(runner.id));
+        }
+        Ok(())
+    }
+
+    pub fn delete_runner(&self, id: Uuid) -> Result<(), StorageError> {
+        let changed = self
+            .conn
+            .execute("DELETE FROM runners WHERE id = ?1", params![id.to_string()])?;
+        if changed == 0 {
+            return Err(StorageError::RunnerNotFound(id));
+        }
+        Ok(())
+    }
+
+    pub fn get_runner(&self, id: Uuid) -> Result<Option<Runner>, StorageError> {
+        let sql = format!("SELECT {RUNNER_COLUMNS} FROM runners WHERE id = ?1");
+        let mut statement = self.conn.prepare(&sql)?;
+        let mut rows = statement.query(params![id.to_string()])?;
+        match rows.next()? {
+            Some(row) => Ok(Some(row_to_runner(row)?)),
+            None => Ok(None),
+        }
+    }
+
+    pub fn list_runners(&self) -> Result<Vec<Runner>, StorageError> {
+        let sql = format!("SELECT {RUNNER_COLUMNS} FROM runners ORDER BY name COLLATE NOCASE, id");
+        let mut statement = self.conn.prepare(&sql)?;
+        let mut rows = statement.query([])?;
+        let mut runners = Vec::new();
+        while let Some(row) = rows.next()? {
+            runners.push(row_to_runner(row)?);
+        }
+        Ok(runners)
+    }
+
+    pub fn count_games_using_runner(&self, runner_id: Uuid) -> Result<u64, StorageError> {
+        let count: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM games WHERE runner_id = ?1",
+            params![runner_id.to_string()],
+            |row| row.get(0),
+        )?;
+        Ok(count as u64)
+    }
+
+    pub fn count_games_using_prefix(&self, prefix: &Path) -> Result<u64, StorageError> {
+        let prefix = path_to_string(prefix, "games.prefix_path")?;
+        let count: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM games WHERE prefix_path = ?1",
+            params![prefix],
+            |row| row.get(0),
+        )?;
+        Ok(count as u64)
+    }
 }
 
 fn map_game_insert_error(error: rusqlite::Error, id: Uuid) -> StorageError {
@@ -168,6 +278,26 @@ fn map_game_insert_error(error: rusqlite::Error, id: Uuid) -> StorageError {
         {
             if message.as_deref().is_some_and(|m| m.contains("games.id")) {
                 return StorageError::GameAlreadyExists(id);
+            }
+            StorageError::Sqlite(error)
+        }
+        _ => StorageError::Sqlite(error),
+    }
+}
+
+fn map_runner_error(error: rusqlite::Error, runner: &Runner) -> StorageError {
+    match &error {
+        rusqlite::Error::SqliteFailure(code, message)
+            if code.code == rusqlite::ErrorCode::ConstraintViolation =>
+        {
+            let message = message.as_deref().unwrap_or_default();
+            if message.contains("runners.binary_path") {
+                return StorageError::DuplicateRunner {
+                    path: runner.binary_path.clone(),
+                };
+            }
+            if message.contains("runners.id") {
+                return StorageError::RunnerAlreadyExists(runner.id);
             }
             StorageError::Sqlite(error)
         }
@@ -190,7 +320,9 @@ pub fn ensure_app_dirs(paths: &AppPaths) -> Result<(), StorageError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use launcher_core::{Arch, DisplayConfig, DllOverride, GamescopeMode, OverrideMode};
+    use launcher_core::{
+        Arch, DisplayConfig, DllOverride, GamescopeMode, OverrideMode, RunnerKind, RunnerSource,
+    };
     use std::collections::BTreeMap;
     use std::path::PathBuf;
     use tempfile::tempdir;
@@ -291,6 +423,93 @@ mod tests {
             db.touch_last_played(game.id, 1),
             Err(StorageError::GameNotFound(_))
         ));
+    }
+
+    fn sample_runner(name: &str, binary_path: &str) -> Runner {
+        Runner {
+            id: Uuid::new_v4(),
+            kind: RunnerKind::Proton,
+            name: name.into(),
+            binary_path: PathBuf::from(binary_path),
+            root_dir: PathBuf::from("/opt/GE-Proton9-1"),
+            arch: Arch::Win64,
+            source: RunnerSource::Imported {
+                original_path: PathBuf::from("/opt/GE-Proton9-1"),
+            },
+            verified: true,
+            version_string: Some("GE-Proton9-1".into()),
+        }
+    }
+
+    #[test]
+    fn runner_round_trips_all_fields() {
+        let db = Db::open_in_memory().unwrap();
+        let runner = sample_runner("GE-Proton9-1", "/opt/GE-Proton9-1/proton");
+        db.insert_runner(&runner).unwrap();
+        assert_eq!(db.get_runner(runner.id).unwrap(), Some(runner.clone()));
+        assert_eq!(db.list_runners().unwrap(), vec![runner]);
+    }
+
+    #[test]
+    fn duplicate_runner_binary_is_rejected() {
+        let db = Db::open_in_memory().unwrap();
+        db.insert_runner(&sample_runner("one", "/opt/proton"))
+            .unwrap();
+        let duplicate = sample_runner("two", "/opt/proton");
+        assert!(matches!(
+            db.insert_runner(&duplicate),
+            Err(StorageError::DuplicateRunner { .. })
+        ));
+    }
+
+    #[test]
+    fn update_and_delete_runner() {
+        let db = Db::open_in_memory().unwrap();
+        let mut runner = sample_runner("one", "/opt/proton");
+        db.insert_runner(&runner).unwrap();
+
+        runner.name = "renamed".into();
+        db.update_runner(&runner).unwrap();
+        assert_eq!(db.get_runner(runner.id).unwrap().unwrap().name, "renamed");
+
+        db.delete_runner(runner.id).unwrap();
+        assert_eq!(db.get_runner(runner.id).unwrap(), None);
+        assert!(matches!(
+            db.delete_runner(runner.id),
+            Err(StorageError::RunnerNotFound(_))
+        ));
+    }
+
+    #[test]
+    fn reference_counts_are_exact() {
+        let db = Db::open_in_memory().unwrap();
+        let runner = sample_runner("one", "/opt/proton");
+        db.insert_runner(&runner).unwrap();
+
+        let mut using_runner = sample_game("one");
+        using_runner.runner_id = Some(runner.id);
+        using_runner.prefix_path = Some(PathBuf::from("/shared/prefix"));
+        let mut using_shared_prefix = sample_game("two");
+        using_shared_prefix.runner_id = Some(Uuid::new_v4());
+        using_shared_prefix.prefix_path = Some(PathBuf::from("/shared/prefix"));
+        let mut using_default_prefix = sample_game("three");
+        using_default_prefix.runner_id = None;
+        using_default_prefix.prefix_path = None;
+
+        for game in [&using_runner, &using_shared_prefix, &using_default_prefix] {
+            db.insert_game(game).unwrap();
+        }
+
+        assert_eq!(db.count_games_using_runner(runner.id).unwrap(), 1);
+        assert_eq!(
+            db.count_games_using_prefix(Path::new("/shared/prefix"))
+                .unwrap(),
+            2
+        );
+        assert_eq!(
+            db.count_games_using_prefix(Path::new("/unused")).unwrap(),
+            0
+        );
     }
 
     #[test]
