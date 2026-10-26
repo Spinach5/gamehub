@@ -2,6 +2,43 @@
 
 本文件记录每个实施阶段完成的内容、与规格的偏差以及验证结果。
 
+## P3 — runner-wine
+
+### 完成内容
+
+- `WineContext`：Wine 环境恰好是 `WINEPREFIX`/`WINEARCH`/`WINEDEBUG=-all`，
+  Proton 环境恰好是 `STEAM_COMPAT_DATA_PATH`/`STEAM_COMPAT_CLIENT_INSTALL_PATH`/
+  `PROTONPATH`；两种 runner 的环境变量互不泄漏。
+- 命令构造：Wine 为 `(wine, [exe, args...])`，Proton 为
+  `(proton, ["run", exe, args...])`，纯函数、不触碰文件系统。
+- `WineContext::spawn` 以 base env + extra env 构造 tokio 子进程，
+  `kill_on_drop(false)`，失败映射为 `RunnerError::Spawn`。
+- 系统 Wine 探测：PATH 条目 + `/usr/bin/wine{,-stable,-development}` 候选项，
+  按 canonical path 去重；逐个执行 `--version`，默认 5s 超时，失败仅告警不 panic。
+- Proton 目录校验：要求 `root/proton` 存在且可执行（规范化路径后检查），
+  版本优先读 `version` 文件，否则用目录名；导入 runner 固定 win64 且 verified。
+- `verify_runner` 在启动前检查二进制存在性与可执行位，分别报
+  `MissingBinary`/`NotExecutable`。
+- `RunnerError` 覆盖目录/二进制校验、规范化、探测失败/超时、spawn 与 IO。
+
+### 与规格的偏差
+
+- R1 计划预计 7 个测试，实际测试模块定义 6 个（计划计数笔误），后续数量与
+  计划一致（R2=13、R3=16、R4=17）。
+- `verify_runner` 实现覆盖 `NotExecutable`，计划测试只断言 `MissingBinary`。
+- 并行测试暴露 ETXTBSY 竞态（fork 继承其它测试正在写入的脚本 fd，
+  复现率 5/40）；新增仅测试可见的 `tokio::sync::Mutex`（`EXEC_LOCK`）
+  串行化"写脚本并 spawn"的测试，修复后 50 次全量运行 0 失败。
+
+### 验证
+
+- 真实环境：Wine 10.0（`wine-10.0 (Debian 10.0~repack-6)`），
+  `detect_system_wine()` 探测到 1 个 runner；本机无 Proton，
+  `validate_proton_dir` 由伪造目录测试覆盖。
+- `cargo test -p runner-wine`：17 passed；`cargo test --workspace`：57 passed。
+- `cargo clippy --workspace --all-targets -- -D warnings`：通过。
+- `cargo fmt --all --check`、`cargo build --workspace`：通过。
+
 ## P2 — 存储
 
 ### 完成内容

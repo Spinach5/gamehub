@@ -53,7 +53,7 @@ pub fn verify_runner(runner: &Runner) -> Result<(), RunnerError>;
 - Create: `crates/runner-wine/src/context.rs`
 - Modify: `crates/runner-wine/src/lib.rs`
 
-- [ ] **Step 1: 写错误类型**
+- [x] **Step 1: 写错误类型**
 
 `crates/runner-wine/src/error.rs`：
 
@@ -94,7 +94,7 @@ pub enum RunnerError {
 }
 ```
 
-- [ ] **Step 2: 写失败测试（环境与命令行真值表）**
+- [x] **Step 2: 写失败测试（环境与命令行真值表）**
 
 `crates/runner-wine/src/context.rs`：
 
@@ -233,12 +233,12 @@ pub use context::WineContext;
 pub use error::RunnerError;
 ```
 
-- [ ] **Step 3: 运行并确认失败**
+- [x] **Step 3: 运行并确认失败**
 
 Run: `cargo test -p runner-wine`
 Expected: 编译失败，`WineContext` 未定义。
 
-- [ ] **Step 4: 实现**
+- [x] **Step 4: 实现**
 
 ```rust
 use launcher_core::{Arch, Runner, RunnerKind};
@@ -322,12 +322,12 @@ impl WineContext {
 }
 ```
 
-- [ ] **Step 5: 运行测试**
+- [x] **Step 5: 运行测试**
 
 Run: `cargo test -p runner-wine`
 Expected: 7 passed。
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```bash
 git add crates/runner-wine
@@ -342,7 +342,7 @@ git commit -m "feat(runner-wine): add wine context env and command construction"
 - Create: `crates/runner-wine/src/detect.rs`
 - Modify: `crates/runner-wine/src/lib.rs`
 
-- [ ] **Step 1: 写测试**
+- [x] **Step 1: 写测试**
 
 `crates/runner-wine/src/detect.rs` 的测试模块：
 
@@ -474,12 +474,12 @@ mod tests {
 }
 ```
 
-- [ ] **Step 2: 运行并确认失败**
+- [x] **Step 2: 运行并确认失败**
 
 Run: `cargo test -p runner-wine`
 Expected: 编译失败，`validate_proton_dir` 等未定义。
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 ```rust
 use launcher_core::{Arch, Runner, RunnerKind, RunnerSource};
@@ -659,12 +659,12 @@ pub use detect::{
 };
 ```
 
-- [ ] **Step 4: 运行测试**
+- [x] **Step 4: 运行测试**
 
 Run: `cargo test -p runner-wine`
 Expected: 13 passed（R1 7 个 + R2 6 个）。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add crates/runner-wine
@@ -678,7 +678,7 @@ git commit -m "feat(runner-wine): detect system wine and validate proton directo
 **Files:**
 - Modify: `crates/runner-wine/src/detect.rs`
 
-- [ ] **Step 1: 追加异步测试**
+- [x] **Step 1: 追加异步测试**
 
 ```rust
     #[tokio::test]
@@ -718,12 +718,12 @@ git commit -m "feat(runner-wine): detect system wine and validate proton directo
     }
 ```
 
-- [ ] **Step 2: 运行测试**
+- [x] **Step 2: 运行测试**
 
 Run: `cargo test -p runner-wine`
 Expected: 16 passed。超时测试应在 2 秒内结束。
 
-- [ ] **Step 3: 提交**
+- [x] **Step 3: 提交**
 
 ```bash
 git add crates/runner-wine
@@ -737,7 +737,7 @@ git commit -m "test(runner-wine): cover probe success, failure and timeout"
 **Files:**
 - Modify: `crates/runner-wine/src/context.rs`
 
-- [ ] **Step 1: 追加测试**
+- [x] **Step 1: 追加测试**
 
 ```rust
     #[tokio::test]
@@ -781,12 +781,12 @@ git commit -m "test(runner-wine): cover probe success, failure and timeout"
     }
 ```
 
-- [ ] **Step 2: 运行测试**
+- [x] **Step 2: 运行测试**
 
 Run: `cargo test -p runner-wine`
 Expected: 17 passed。
 
-- [ ] **Step 3: 提交**
+- [x] **Step 3: 提交**
 
 ```bash
 git add crates/runner-wine
@@ -797,14 +797,19 @@ git commit -m "test(runner-wine): verify spawn environment propagation"
 
 ## P3 验收
 
-- [ ] `cargo test -p runner-wine` 通过。
-- [ ] Wine 的 `base_env` 恰好是 `WINEPREFIX/WINEARCH/WINEDEBUG`；Proton 恰好是 `STEAM_COMPAT_DATA_PATH/STEAM_COMPAT_CLIENT_INSTALL_PATH/PROTONPATH`。
-- [ ] Wine 命令是 `(wine, [exe, args...])`；Proton 是 `(proton, ["run", exe, args...])`。
-- [ ] 系统 Wine 探测对每个候选执行 `--version`，5 秒超时，失败不 panic。
-- [ ] Proton 目录校验检查 `root/proton` 存在且可执行；版本缺失时用目录名。
-- [ ] `verify_runner` 在启动前能发现二进制丢失/不可执行。
-- [ ] 伪造脚本测试覆盖成功、非零退出、超时、环境传递。
+- [x] `cargo test -p runner-wine` 通过。
+- [x] Wine 的 `base_env` 恰好是 `WINEPREFIX/WINEARCH/WINEDEBUG`；Proton 恰好是 `STEAM_COMPAT_DATA_PATH/STEAM_COMPAT_CLIENT_INSTALL_PATH/PROTONPATH`。
+- [x] Wine 命令是 `(wine, [exe, args...])`；Proton 是 `(proton, ["run", exe, args...])`。
+- [x] 系统 Wine 探测对每个候选执行 `--version`，5 秒超时，失败不 panic。
+- [x] Proton 目录校验检查 `root/proton` 存在且可执行；版本缺失时用目录名。
+- [x] `verify_runner` 在启动前能发现二进制丢失/不可执行。
+- [x] 伪造脚本测试覆盖成功、非零退出、超时、环境传递。
 
 ## 实施记录
 
-（实施后填写：实际 Wine 版本、探测到的 runner 数量、偏差。）
+- 实际 Wine 版本：`wine-10.0 (Debian 10.0~repack-6)`（`/usr/bin/wine`）。
+- 真实环境探测结果：`detect_system_wine()` 返回 1 个 runner（`/usr/bin/wine`，`verified=true`，版本字符串与 `wine --version` 一致）；本机未安装 Proton，`validate_proton_dir` 仅由伪造目录测试覆盖。
+- 测试数量：R1 计划预计 7 个，实际测试模块定义 6 个（计划笔误）；R2 后 13 个，R3 后 16 个，R4 后 17 个，均与后续预期一致。
+- 偏差 1：并行测试暴露真实 ETXTBSY 竞态——一个测试 fork 时会继承另一测试正在写入的脚本 fd，随后 exec 该脚本报 `ExecutableFileBusy`，复现率 5/40。已用测试专用 `tokio::sync::Mutex`（`crate::test_support::EXEC_LOCK`）串行化所有"写脚本并 spawn"的测试，修复后连续 50 次全量运行 0 失败；生产代码不受影响。
+- 偏差 2：R2 实现中 `verify_runner` 同时覆盖 `MissingBinary` 与 `NotExecutable`，计划测试仅断言前者。
+- 验证：`cargo fmt --all --check`、`cargo clippy --workspace --all-targets -- -D warnings`、`cargo test --workspace`（57 passed）、`cargo build --workspace` 全部通过。
