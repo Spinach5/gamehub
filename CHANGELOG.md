@@ -2,6 +2,36 @@
 
 本文件记录每个实施阶段完成的内容、与规格的偏差以及验证结果。
 
+## P2 — 存储
+
+### 完成内容
+
+- SQLite v1 schema（WAL、5s busy timeout、外键开关）、schema_version 表与
+  版本检查：新库自动建表，旧版本报 `MigrationRequired`，未来版本报
+  `UnsupportedSchema`。
+- `Db::open` 自动创建数据库父目录；`ensure_app_dirs` 创建应用全部目录。
+- Game/Runner CRUD；Game 的 JSON 列（display/env/dll/args）与 Runner
+  `source_json`；列表按名称 `NOCASE` 排序。
+- Settings 键值表：upsert、查询、删除、全量 BTreeMap。
+- 删除前引用计数：`count_games_using_runner`、`count_games_using_prefix`。
+- 可诊断错误：损坏枚举/UUID（`CorruptValue` 带列名）、损坏 JSON、
+  非 UTF-8 路径（`NonUtf8Path` 带列名）、重复 runner 二进制路径。
+- `runners.binary_path` 唯一约束。
+
+### 与规格的偏差
+
+- 为避免 S2 提交出现 `dead_code` 警告，`row_to_runner` 与
+  `parse_runner_kind` 延后到 S3 才加入 `mapping.rs`；最终公开 API 与
+  spec 完全一致。
+- 测试模块不再重复 `use rusqlite::params`（`use super::*` 已引入）。
+
+### 验证
+
+- 绑定 SQLite 版本：3.54.1（libsqlite3-sys 0.39.1 bundled）。
+- `cargo test -p storage`：18 passed。
+- `cargo clippy -p storage --all-targets -- -D warnings`：通过。
+- `cargo fmt --all --check`：通过。
+
 ## P1 — 核心类型
 
 ### 完成内容

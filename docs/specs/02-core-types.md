@@ -595,12 +595,12 @@ git commit -m "test(launcher-core): lock serialization contracts"
 
 ## P1 验收
 
-- [ ] `cargo test -p launcher-core` 通过。
-- [ ] 所有字段名与本文“固定类型契约”一致。
-- [ ] `Arch::as_str()` 与 serde 输出一致，`parse` 只接受小写。
-- [ ] `RunnerSource::System` 的 JSON 是 `{"kind":"system"}`。
-- [ ] `DisplayConfig::default()` 与 v1 方案一致（Auto/None/None/None/true/Auto）。
+- [x] `cargo test -p launcher-core` 通过。
+- [x] 所有字段名与本文“固定类型契约”一致。
+- [x] `Arch::as_str()` 与 serde 输出一致，`parse` 只接受小写。
+- [x] `RunnerSource::System` 的 JSON 是 `{"kind":"system"}`。
+- [x] `DisplayConfig::default()` 与 v1 方案一致（Auto/None/None/None/true/Auto）。
 
 ## 实施记录
 
-（实施后填写偏差。）
+- 2026-10-26 完成。20 个单元测试 + 2 个集成测试通过；无偏差。

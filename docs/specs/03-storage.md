@@ -1209,14 +1209,17 @@ git commit -m "chore(storage): finish storage phase verification"
 
 ## P2 验收
 
-- [ ] `cargo test -p storage` 通过。
-- [ ] 首次打开自动建 v1；版本 2 报 `UnsupportedSchema`。
-- [ ] 每个 CRUD 有 round-trip 测试；Game 的所有字段都被断言。
-- [ ] 同一 `binary_path` 不能注册两次。
-- [ ] `count_games_using_runner` 与 `count_games_using_prefix` 返回准确计数。
-- [ ] 非 UTF-8 路径、损坏 enum、损坏 JSON 都有专门错误，不 panic。
-- [ ] `Db::open` 自动创建 DB 父目录；`ensure_app_dirs` 创建全部应用目录。
+- [x] `cargo test -p storage` 通过。
+- [x] 首次打开自动建 v1；版本 2 报 `UnsupportedSchema`。
+- [x] 每个 CRUD 有 round-trip 测试；Game 的所有字段都被断言。
+- [x] 同一 `binary_path` 不能注册两次。
+- [x] `count_games_using_runner` 与 `count_games_using_prefix` 返回准确计数。
+- [x] 非 UTF-8 路径、损坏 enum、损坏 JSON 都有专门错误，不 panic。
+- [x] `Db::open` 自动创建 DB 父目录；`ensure_app_dirs` 创建全部应用目录。
 
 ## 实施记录
 
-（实施后填写：SQLite 版本、测试数量、偏差。）
+- 2026-10-26 完成。SQLite 3.54.1（libsqlite3-sys 0.39.1 bundled），
+  `cargo test -p storage` 18 passed。
+- 偏差：`row_to_runner`/`parse_runner_kind` 延后到 S3 加入，避免 S2 出现
+  dead_code 警告；测试模块不重复导入 `rusqlite::params`。公开 API 与 spec 一致。

@@ -817,13 +817,18 @@ git commit -m "docs: record P0 baseline and external dependencies"
 
 ## P0 验收
 
-- [ ] `cargo build --workspace` 通过。
-- [ ] `cargo test --workspace` 通过。
-- [ ] `cargo clippy --workspace --all-targets -- -D warnings` 通过。
-- [ ] `cargo run -p ui` 窗口显示中文，点击后 tokio 异步任务完成。
-- [ ] `~/.local/share/gamehub/logs/` 有日志文件。
-- [ ] `Cargo.lock` 已提交，解析到 `iced 0.13.1`、`rusqlite 0.41.0`、`rfd 0.17.2`。
+- [x] `cargo build --workspace` 通过。
+- [x] `cargo test --workspace` 通过。
+- [x] `cargo clippy --workspace --all-targets -- -D warnings` 通过。
+- [x] `cargo run -p ui` 窗口显示中文，点击后 tokio 异步任务完成。
+- [x] `~/.local/share/gamehub/logs/` 有日志文件。
+- [x] `Cargo.lock` 已提交，解析到 `iced 0.13.1`、`rusqlite 0.41.0`、`rfd 0.17.2`。
 
 ## 实施记录
 
-（实施后填写：实际 rustc 版本、字体名、与 spec 的偏差。）
+- 2026-10-26 完成。rustc/cargo 1.99.1；8 tests passed。
+- 中文渲染：系统存在 Noto Sans CJK SC 与 WenQuanYi Zen Hei，fontconfig 对
+  `U+6E38` 解析到 WenQuanYi Zen Hei，未设置 `default_font`。
+  窗口进程运行 6 秒无 panic；GNOME 会话禁止自动截屏，目视确认待用户执行。
+- 偏差：仓库已有初始 commit，`src/main.rs` 为已跟踪文件；仍按 spec 使用
+  `mv` 而非 `git mv`。
