@@ -317,4 +317,126 @@ mod tests {
             ]
         );
     }
+
+    #[tokio::test]
+    async fn install_copies_files_and_invokes_reg_add() {
+        use crate::test_support::{EXEC_LOCK, fake_runner, write_script};
+        use launcher_core::RunnerKind;
+
+        let _exec_guard = EXEC_LOCK.lock().await;
+        let dir = tempdir().unwrap();
+        let prefix = dir.path().join("prefix");
+        fs::create_dir_all(&prefix).unwrap();
+        fs::write(prefix.join("system.reg"), "#arch=win64\n").unwrap();
+
+        let reg_log = dir.path().join("reg.log");
+        let wine = dir.path().join("wine");
+        write_script(
+            &wine,
+            &format!(
+                "#!/bin/sh\nprintf '%s\\n' \"$@\" >> '{}'\nexit 0\n",
+                reg_log.display()
+            ),
+        );
+
+        let source = dir.path().join("dxvk");
+        for name in ["d3d11.dll", "dxgi.dll", "d3d9.dll"] {
+            write_dll(&source, "x64", name);
+        }
+
+        let plan = PrefixPlan::new(
+            prefix.clone(),
+            fake_runner(RunnerKind::Wine, wine),
+            Arch::Win64,
+            dir.path().join("steam-client"),
+        );
+
+        install_dxvk(&plan, &DxvkSource { root: source })
+            .await
+            .unwrap();
+
+        let system32 = prefix.join("drive_c/windows/system32");
+        assert_eq!(fs::read(system32.join("d3d11.dll")).unwrap(), b"dll");
+        assert_eq!(fs::read(system32.join("dxgi.dll")).unwrap(), b"dll");
+        assert_eq!(fs::read(system32.join("d3d9.dll")).unwrap(), b"dll");
+
+        let logged = fs::read_to_string(reg_log).unwrap();
+        assert!(logged.contains("add"));
+        assert!(logged.contains("HKCU\\Software\\Wine\\DllOverrides"));
+        assert!(logged.contains("d3d11"));
+        assert!(logged.contains("native,builtin"));
+        assert_eq!(logged.lines().filter(|line| *line == "add").count(), 3);
+    }
+
+    #[tokio::test]
+    async fn install_for_proton_uses_pfx_drive_c_and_run_reg() {
+        use crate::test_support::{EXEC_LOCK, fake_runner, write_script};
+        use launcher_core::RunnerKind;
+
+        let _exec_guard = EXEC_LOCK.lock().await;
+        let dir = tempdir().unwrap();
+        let prefix = dir.path().join("compat-data");
+        fs::create_dir_all(prefix.join("pfx")).unwrap();
+        fs::write(prefix.join("pfx/system.reg"), "#arch=win64\n").unwrap();
+
+        let reg_log = dir.path().join("reg.log");
+        let proton = dir.path().join("proton");
+        write_script(
+            &proton,
+            &format!(
+                "#!/bin/sh\nprintf '%s\\n' \"$@\" >> '{}'\nexit 0\n",
+                reg_log.display()
+            ),
+        );
+
+        let source = dir.path().join("dxvk");
+        for name in ["d3d11.dll", "dxgi.dll"] {
+            write_dll(&source, "x64", name);
+        }
+
+        let plan = PrefixPlan::new(
+            prefix.clone(),
+            fake_runner(RunnerKind::Proton, proton),
+            Arch::Win64,
+            dir.path().join("steam-client"),
+        );
+
+        install_dxvk(&plan, &DxvkSource { root: source })
+            .await
+            .unwrap();
+
+        assert!(
+            prefix
+                .join("pfx/drive_c/windows/system32/d3d11.dll")
+                .is_file()
+        );
+        let logged = fs::read_to_string(reg_log).unwrap();
+        let args: Vec<&str> = logged.lines().collect();
+        assert_eq!(args[0], "run");
+        assert_eq!(args[1], "reg");
+    }
+
+    #[tokio::test]
+    async fn install_requires_initialized_prefix() {
+        use crate::test_support::fake_runner;
+        use launcher_core::RunnerKind;
+        use std::path::PathBuf;
+
+        let dir = tempdir().unwrap();
+        let source = dir.path().join("dxvk");
+        write_dll(&source, "x64", "d3d11.dll");
+        write_dll(&source, "x64", "dxgi.dll");
+
+        let plan = PrefixPlan::new(
+            dir.path().join("missing"),
+            fake_runner(RunnerKind::Wine, PathBuf::from("/bin/true")),
+            Arch::Win64,
+            dir.path().join("steam-client"),
+        );
+
+        assert!(matches!(
+            install_dxvk(&plan, &DxvkSource { root: source }).await,
+            Err(PrefixError::PrefixNotInitialized(_))
+        ));
+    }
 }
