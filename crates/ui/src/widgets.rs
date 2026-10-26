@@ -90,3 +90,44 @@ pub fn arch_choice(arch: launcher_core::Arch) -> Choice<launcher_core::Arch> {
         launcher_core::Arch::Win32 => Choice::new(arch, "32 位 (win32)"),
     }
 }
+
+pub fn confirm_bar(target: &crate::app::DeleteTarget) -> Element<'_, Message> {
+    row![
+        text(format!("确认删除 {}？此操作不可撤销。", target.label()))
+            .width(iced::Length::Fill)
+            .wrapping(iced::widget::text::Wrapping::WordOrGlyph),
+        button("确认删除").on_press(Message::DeleteConfirmed),
+        button("取消").on_press(Message::CancelDelete),
+    ]
+    .spacing(8)
+    .padding(8)
+    .into()
+}
+
+pub fn runner_choices(
+    runners: &[launcher_core::Runner],
+    none_label: &str,
+) -> Vec<Choice<Option<uuid::Uuid>>> {
+    let mut choices = vec![Choice::new(None, none_label)];
+    choices.extend(
+        runners
+            .iter()
+            .map(|runner| Choice::new(Some(runner.id), runner.name.clone())),
+    );
+    choices
+}
+
+pub fn runner_choice(
+    runners: &[launcher_core::Runner],
+    none_label: &str,
+    selected: Option<uuid::Uuid>,
+) -> Choice<Option<uuid::Uuid>> {
+    match selected {
+        Some(id) => runners
+            .iter()
+            .find(|runner| runner.id == id)
+            .map(|runner| Choice::new(Some(id), runner.name.clone()))
+            .unwrap_or_else(|| Choice::new(None, none_label)),
+        None => Choice::new(None, none_label),
+    }
+}

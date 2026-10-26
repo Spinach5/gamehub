@@ -677,13 +677,22 @@ impl App {
             Screen::Settings => crate::views::settings::view(self),
         };
 
-        match &self.error {
+        let mut content = match &self.error {
             Some(error) => iced::widget::column![crate::widgets::error_banner(error), screen]
                 .spacing(8)
                 .padding(8)
                 .into(),
             None => screen,
+        };
+
+        if let Some(target) = &self.confirming {
+            content = iced::widget::column![crate::widgets::confirm_bar(target), content]
+                .spacing(8)
+                .padding(8)
+                .into();
         }
+
+        content
     }
 
     fn apply_loaded(&mut self, data: LoadedData) {
