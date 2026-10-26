@@ -57,5 +57,22 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 ```
 
+## 验收记录
+
+2026-10-27 在 Wine 10.0 + Wayland/XWayland 环境完成 v2 验收：自动检查 156
+passed / 1 ignored，release 构建 14 MB，Wine 与 GE-Proton11-7 端到端启动
+notepad 通过，`strace` 日志无 `AF_INET/AF_INET6`。完整证据、未执行项和偏差
+见 [`docs/acceptance.md`](docs/acceptance.md)，门槛定义见
+[`docs/specs/11-acceptance.md`](docs/specs/11-acceptance.md)。
+
+本机验收限制：
+
+- 未安装 gamescope，只验证了参数级单测以及未检测到 gamescope 时的提示/
+  拒绝；安装后需补做真实启动。
+- 无 X11 会话，X11 输出下拉与非 gamescope 分辨率未手工验证。
+- 自动化通过 XWayland + XTEST/`import -window` 完成；高 DPI（缩放因子 1）
+  未单独验证。
+- 系统未安装 `strace`，离线检查使用解压到临时目录的 6.13 版本执行。
+
 详细实施方案见 [`docs/plan.md`](docs/plan.md) 与
 [`docs/specs/00-overview.md`](docs/specs/00-overview.md)。

@@ -2,6 +2,48 @@
 
 本文件记录每个实施阶段完成的内容、与规格的偏差以及验证结果。
 
+## P10 — 交付验收
+
+### 完成内容
+
+- 按 `docs/specs/11-acceptance.md` 执行 A1–A10，新增
+  `docs/acceptance.md` 记录环境、自动/手工结果、未执行项与偏差。
+- README 增加验收记录与限制说明；验收计划勾选完成项并追加实施记录。
+- 本阶段只改文档，不修改产品代码；验收对象为 `bf0ecdd`。
+
+### 与规格的偏差
+
+- 系统未安装 `strace`：下载 6.13 `.deb` 解压到 `/tmp` 执行，未安装进系统；
+  为识别子进程额外用 `-e trace=connect,sendto,execve` 复跑一次，两次均无
+  `AF_INET/AF_INET6`。
+- 自动化通过 XWayland + XTEST/`import -window` 完成；`XDG_SESSION_TYPE` 仍为
+  `wayland`，显示配置按 Wayland 分支验证。
+- 本机无 gamescope：A9 Step 2 未执行，仅有 10 项参数级单测。
+- 本机无 X11 会话：X11 输出下拉与非 gamescope 分辨率未手工验证。
+- 高 DPI 未验证（缩放因子 1）；900×600 最小尺寸正常。
+- rfd 在隔离环境无 session bus，回退 zenity；正常桌面使用
+  xdg-desktop-portal。
+- 共享 Prefix 与同 Prefix 并发的第二个游戏由 DB 预置，验证后删除。
+- 游戏删除只删 DB 行，不删除 Prefix 目录，符合 A3 Step 9 的“可另行删除”。
+
+### 验证
+
+- `cargo fmt --all --check`、`cargo clippy --workspace --all-targets -- -D warnings`：
+  通过；`cargo test --workspace`：156 passed，1 ignored；`cargo test -p ui`：
+  26 passed；debug/release 构建通过，release 二进制 14 MB。
+- A2：`initializes_with_real_system_wine` 通过，耗时 10.22 s。
+- A3：Wine 10.0 探测/默认 Runner、游戏导入与重启保留、Prefix 初始化、显示
+  配置、环境变量与 DLL override、`WINEDLLOVERRIDES` 拒绝、启动 notepad
+  显示运行中、子进程环境、关闭后 `last_played_at` 更新、默认/被引用 Runner
+  与共享 Prefix 删除保护均通过。
+- A4：导入 GE-Proton11-7，`STEAM_COMPAT_DATA_PATH/pfx/system.reg` 生成，
+  notepad 启动/关闭与最近游玩更新通过。
+- A5：`net.log` 462 行，`AF_INET/AF_INET6` 为 0，输出 `offline ok`；仅
+  X11、系统 D-Bus、nscd、CUPS 等 `AF_UNIX`。
+- A6：`ldd` 无 gtk/qt/webkit；仅 libc/libm/libgcc/ld-linux。
+- A7：中文标签无方块（Noto Sans CJK SC），900×600 布局与滚动正常。
+- A9：`cargo test -p display gamescope` 10 passed。
+
 ## P9 — 配置与启动 UI
 
 ### 完成内容
