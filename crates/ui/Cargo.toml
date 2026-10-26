@@ -7,6 +7,10 @@ rust-version.workspace = true
 [lints]
 workspace = true
 
+[lib]
+name = "ui"
+path = "src/lib.rs"
+
 [[bin]]
 name = "gamehub"
 path = "src/main.rs"
