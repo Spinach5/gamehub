@@ -5,13 +5,21 @@ use iced::Task;
 pub enum DialogIntent {
     PickExe,
     PickWorkingDir,
+    PickProtonDir,
+    PickPrefixDir,
+    PickDxvkDir,
+    PickPrefixRoot,
 }
 
 fn dialog_impl(intent: DialogIntent) -> Option<std::path::PathBuf> {
     let dialog = rfd::FileDialog::new();
     match intent {
         DialogIntent::PickExe => dialog.add_filter("Windows 程序", &["exe"]).pick_file(),
-        DialogIntent::PickWorkingDir => dialog.pick_folder(),
+        DialogIntent::PickWorkingDir
+        | DialogIntent::PickProtonDir
+        | DialogIntent::PickPrefixDir
+        | DialogIntent::PickDxvkDir
+        | DialogIntent::PickPrefixRoot => dialog.pick_folder(),
     }
 }
 

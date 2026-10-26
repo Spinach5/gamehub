@@ -43,6 +43,41 @@ pub enum DraftAction {
     WorkingDir(Option<PathBuf>),
     ClearWorkingDir,
     Arch(Arch),
+    Runner(Option<Uuid>),
+    Prefix(Option<PathBuf>),
+    ClearPrefix,
+}
+
+#[derive(Debug, Clone)]
+pub enum EnvAction {
+    Add,
+    Remove(usize),
+    Key { index: usize, key: String },
+    Value { index: usize, value: String },
+}
+
+pub fn apply_env_action(rows: &mut Vec<EnvRow>, action: EnvAction) {
+    match action {
+        EnvAction::Add => rows.push(EnvRow {
+            key: String::new(),
+            value: String::new(),
+        }),
+        EnvAction::Remove(index) => {
+            if index < rows.len() {
+                rows.remove(index);
+            }
+        }
+        EnvAction::Key { index, key } => {
+            if let Some(row) = rows.get_mut(index) {
+                row.key = key;
+            }
+        }
+        EnvAction::Value { index, value } => {
+            if let Some(row) = rows.get_mut(index) {
+                row.value = value;
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -121,7 +156,7 @@ fn normalize_dll_name(value: &str) -> String {
     }
 }
 
-fn env_rows_to_map(rows: &[EnvRow]) -> Result<BTreeMap<String, String>, DraftError> {
+pub(crate) fn env_rows_to_map(rows: &[EnvRow]) -> Result<BTreeMap<String, String>, DraftError> {
     let mut map = BTreeMap::new();
     for row in rows {
         let key = row.key.trim();
@@ -251,6 +286,9 @@ impl GameDraft {
             DraftAction::WorkingDir(value) => self.working_dir = value,
             DraftAction::ClearWorkingDir => self.working_dir = None,
             DraftAction::Arch(value) => self.arch = value,
+            DraftAction::Runner(value) => self.runner_id = value,
+            DraftAction::Prefix(value) => self.prefix_path = value,
+            DraftAction::ClearPrefix => self.prefix_path = None,
         }
     }
 

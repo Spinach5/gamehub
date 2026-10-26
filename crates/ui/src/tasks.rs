@@ -1,9 +1,12 @@
+use crate::app::DeleteTarget;
 use display::{SessionType, X11Output};
 use launcher_core::{Game, Runner};
-use std::collections::BTreeMap;
+use prefix::{DxvkSource, PrefixPlan, PrefixStatus};
+use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use storage::Db;
+use uuid::Uuid;
 
 #[derive(Debug, Clone)]
 pub struct LoadedData {
@@ -61,11 +64,188 @@ pub async fn save_game(db: Arc<Mutex<Db>>, game: Game, is_new: bool) -> Result<G
     .map_err(|error| format!("保存任务失败: {error}"))?
 }
 
+pub async fn prefix_status(plan: PrefixPlan) -> PrefixStatus {
+    tokio::task::spawn_blocking(move || prefix::status(&plan))
+        .await
+        .unwrap_or(PrefixStatus::NotInitialized)
+}
+
+pub async fn create_prefix(plan: PrefixPlan, dxvk: Option<DxvkSource>) -> Result<PathBuf, String> {
+    plan.initialize().await.map_err(|error| error.to_string())?;
+    if let Some(source) = dxvk {
+        prefix::install_dxvk(&plan, &source)
+            .await
+            .map_err(|error| error.to_string())?;
+    }
+    Ok(plan.path)
+}
+
+pub async fn install_dxvk(plan: PrefixPlan, source: DxvkSource) -> Result<(), String> {
+    prefix::install_dxvk(&plan, &source)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+pub async fn detect_and_persist(db: Arc<Mutex<Db>>) -> Result<Vec<Runner>, String> {
+    let found = runner_wine::detect_system_wine().await;
+    persist_runners(db, found).await
+}
+
+pub async fn persist_runners(
+    db: Arc<Mutex<Db>>,
+    runners: Vec<Runner>,
+) -> Result<Vec<Runner>, String> {
+    tokio::task::spawn_blocking(move || {
+        let db = db.lock().map_err(|_| "数据库锁不可用".to_string())?;
+        for mut runner in runners {
+            let existing = db
+                .list_runners()
+                .map_err(|error| error.to_string())?
+                .into_iter()
+                .find(|existing| existing.binary_path == runner.binary_path);
+
+            if let Some(existing) = existing {
+                runner.id = existing.id;
+                db.update_runner(&runner)
+                    .map_err(|error| error.to_string())?;
+            } else {
+                match db.insert_runner(&runner) {
+                    Ok(()) | Err(storage::StorageError::DuplicateRunner { .. }) => {}
+                    Err(error) => return Err(error.to_string()),
+                }
+            }
+        }
+        db.list_runners().map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| format!("Runner 探测任务失败: {error}"))?
+}
+
+pub async fn import_proton(db: Arc<Mutex<Db>>, dir: PathBuf) -> Result<Runner, String> {
+    tokio::task::spawn_blocking(move || {
+        let runner = runner_wine::validate_proton_dir(&dir).map_err(|error| error.to_string())?;
+        let db = db.lock().map_err(|_| "数据库锁不可用".to_string())?;
+        db.insert_runner(&runner)
+            .map_err(|error| error.to_string())?;
+        Ok(runner)
+    })
+    .await
+    .map_err(|error| format!("Proton 导入任务失败: {error}"))?
+}
+
+pub async fn save_default_runner(db: Arc<Mutex<Db>>, id: Option<Uuid>) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || {
+        let db = db.lock().map_err(|_| "数据库锁不可用".to_string())?;
+        match id {
+            Some(id) => db
+                .set_setting(crate::app::SETTING_DEFAULT_RUNNER_ID, &id.to_string())
+                .map_err(|error| error.to_string()),
+            None => db
+                .delete_setting(crate::app::SETTING_DEFAULT_RUNNER_ID)
+                .map_err(|error| error.to_string()),
+        }
+    })
+    .await
+    .map_err(|error| format!("默认 Runner 保存任务失败: {error}"))?
+}
+
+pub async fn save_settings(
+    db: Arc<Mutex<Db>>,
+    values: BTreeMap<String, Option<String>>,
+) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || {
+        let db = db.lock().map_err(|_| "数据库锁不可用".to_string())?;
+        for (key, value) in values {
+            match value {
+                Some(value) => db
+                    .set_setting(&key, &value)
+                    .map_err(|error| error.to_string())?,
+                None => db.delete_setting(&key).map_err(|error| error.to_string())?,
+            }
+        }
+        Ok(())
+    })
+    .await
+    .map_err(|error| format!("设置保存任务失败: {error}"))?
+}
+
+pub async fn delete_target(
+    db: Arc<Mutex<Db>>,
+    target: DeleteTarget,
+    running: HashMap<Uuid, PathBuf>,
+    default_runner_id: Option<Uuid>,
+) -> Result<(), String> {
+    match target {
+        DeleteTarget::Runner(id) => tokio::task::spawn_blocking(move || {
+            if default_runner_id == Some(id) {
+                return Err("该 Runner 是全局默认，请先更换默认 Runner".to_string());
+            }
+            let db = db.lock().map_err(|_| "数据库锁不可用".to_string())?;
+            let count = db
+                .count_games_using_runner(id)
+                .map_err(|error| error.to_string())?;
+            if count > 0 {
+                return Err(format!("仍有 {count} 个游戏使用该 Runner"));
+            }
+            db.delete_runner(id).map_err(|error| error.to_string())
+        })
+        .await
+        .map_err(|error| format!("删除任务失败: {error}"))?,
+        DeleteTarget::Prefix { game_id, path } => {
+            if running.contains_key(&game_id)
+                || running.values().any(|running_path| running_path == &path)
+            {
+                return Err("游戏正在运行，不能删除 Prefix".into());
+            }
+
+            let path_for_db = path.clone();
+            tokio::task::spawn_blocking(move || {
+                let db = db.lock().map_err(|_| "数据库锁不可用".to_string())?;
+                let count = db
+                    .count_games_using_prefix(&path_for_db)
+                    .map_err(|error| error.to_string())?;
+                if count > 1 {
+                    return Err("该 Prefix 被多个游戏共享，不能删除".to_string());
+                }
+                if count == 1 {
+                    let mut game = db
+                        .get_game(game_id)
+                        .map_err(|error| error.to_string())?
+                        .ok_or_else(|| "游戏不存在".to_string())?;
+                    if game.prefix_path.as_deref() != Some(path_for_db.as_path()) {
+                        return Err("该 Prefix 被其他游戏使用".to_string());
+                    }
+                    game.prefix_path = None;
+                    db.update_game(&game).map_err(|error| error.to_string())?;
+                }
+                Ok::<(), String>(())
+            })
+            .await
+            .map_err(|error| format!("删除任务失败: {error}"))??;
+
+            prefix::delete_prefix(&path)
+                .await
+                .map_err(|error| error.to_string())
+        }
+        DeleteTarget::Game(id) => {
+            if running.contains_key(&id) {
+                return Err("游戏正在运行，不能删除".into());
+            }
+            tokio::task::spawn_blocking(move || {
+                let db = db.lock().map_err(|_| "数据库锁不可用".to_string())?;
+                db.delete_game(id).map_err(|error| error.to_string())
+            })
+            .await
+            .map_err(|error| format!("删除任务失败: {error}"))?
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use launcher_core::{Arch, DisplayConfig, Game};
-    use std::collections::BTreeMap;
+    use launcher_core::{Arch, DisplayConfig, Game, RunnerKind, RunnerSource};
+    use std::collections::{BTreeMap, HashMap};
     use std::fs;
     use std::sync::{Arc, Mutex};
     use tempfile::tempdir;
