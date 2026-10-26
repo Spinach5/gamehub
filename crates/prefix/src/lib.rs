@@ -1,5 +1,9 @@
 mod error;
+mod initialize;
 mod status;
+
+#[cfg(test)]
+mod test_support;
 
 pub use error::PrefixError;
 pub use status::{
