@@ -636,4 +636,79 @@ mod tests {
         assert!(paths.default_prefix_root.is_dir());
         assert!(paths.steam_compat_client.is_dir());
     }
+
+    #[test]
+    fn corrupt_arch_is_reported() {
+        let db = Db::open_in_memory().unwrap();
+        let game = sample_game("corrupt");
+        db.insert_game(&game).unwrap();
+        db.conn
+            .execute(
+                "UPDATE games SET arch = 'win16' WHERE id = ?1",
+                params![game.id.to_string()],
+            )
+            .unwrap();
+
+        assert!(matches!(
+            db.get_game(game.id),
+            Err(StorageError::CorruptValue {
+                column: "games.arch",
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn corrupt_json_is_reported() {
+        let db = Db::open_in_memory().unwrap();
+        let game = sample_game("corrupt");
+        db.insert_game(&game).unwrap();
+        db.conn
+            .execute(
+                "UPDATE games SET display_json = 'not json' WHERE id = ?1",
+                params![game.id.to_string()],
+            )
+            .unwrap();
+
+        assert!(matches!(db.get_game(game.id), Err(StorageError::Json(_))));
+    }
+
+    #[test]
+    fn non_utf8_paths_are_rejected() {
+        use std::ffi::OsStr;
+        use std::os::unix::ffi::OsStrExt;
+
+        let db = Db::open_in_memory().unwrap();
+        let mut game = sample_game("bad path");
+        game.executable_path = PathBuf::from(OsStr::from_bytes(b"/tmp/\xff.exe"));
+
+        assert!(matches!(
+            db.insert_game(&game),
+            Err(StorageError::NonUtf8Path {
+                column: "games.executable_path",
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn corrupt_runner_kind_is_reported() {
+        let db = Db::open_in_memory().unwrap();
+        let runner = sample_runner("one", "/opt/proton");
+        db.insert_runner(&runner).unwrap();
+        db.conn
+            .execute(
+                "UPDATE runners SET kind = 'umu' WHERE id = ?1",
+                params![runner.id.to_string()],
+            )
+            .unwrap();
+
+        assert!(matches!(
+            db.get_runner(runner.id),
+            Err(StorageError::CorruptValue {
+                column: "runners.kind",
+                ..
+            })
+        ));
+    }
 }
