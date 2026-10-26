@@ -1,6 +1,6 @@
 # P5 显示会话、xrandr 与 gamescope Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** 实现 `display`：会话类型检测、`xrandr --query` 解析、PATH 中查找 gamescope、按显示配置生成 gamescope 参数。
 
@@ -54,7 +54,7 @@ pub fn build_gamescope_args(
 - Create: `crates/display/src/session.rs`
 - Modify: `crates/display/src/lib.rs`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 `crates/display/src/session.rs`：
 
@@ -87,12 +87,12 @@ mod session;
 pub use session::{detect_session, session_from, SessionType};
 ```
 
-- [ ] **Step 2: 运行并确认失败**
+- [x] **Step 2: 运行并确认失败**
 
 Run: `cargo test -p display`
 Expected: 编译失败，`SessionType` 未定义。
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 ```rust
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -115,12 +115,12 @@ pub fn detect_session() -> SessionType {
 }
 ```
 
-- [ ] **Step 4: 运行测试**
+- [x] **Step 4: 运行测试**
 
 Run: `cargo test -p display`
 Expected: 2 passed。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add crates/display
@@ -135,7 +135,7 @@ git commit -m "feat(display): detect x11 and wayland sessions"
 - Create: `crates/display/src/xrandr.rs`
 - Modify: `crates/display/src/lib.rs`
 
-- [ ] **Step 1: 写解析测试（使用本机真实输出）**
+- [x] **Step 1: 写解析测试（使用本机真实输出）**
 
 `crates/display/src/xrandr.rs`：
 
@@ -216,12 +216,12 @@ mod xrandr;
 pub use xrandr::{list_x11_outputs, parse_xrandr_output, X11Output};
 ```
 
-- [ ] **Step 2: 运行并确认失败**
+- [x] **Step 2: 运行并确认失败**
 
 Run: `cargo test -p display`
 Expected: 编译失败，`X11Output` 未定义。
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 ```rust
 use std::process::Command;
@@ -361,12 +361,12 @@ pub fn list_x11_outputs() -> Vec<X11Output> {
 - 刷新率取整：`143.88 → 144`；`143.80` 不是当前模式，不采用。
 - 无刷新率时 `current_mode = Some((w, h, None))`。
 
-- [ ] **Step 4: 运行测试**
+- [x] **Step 4: 运行测试**
 
 Run: `cargo test -p display`
 Expected: 6 passed。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add crates/display
@@ -381,7 +381,7 @@ git commit -m "feat(display): parse xrandr outputs with fractional refresh rates
 - Create: `crates/display/src/gamescope.rs`
 - Modify: `crates/display/src/lib.rs`
 
-- [ ] **Step 1: 写测试**
+- [x] **Step 1: 写测试**
 
 `crates/display/src/gamescope.rs`：
 
@@ -439,12 +439,12 @@ mod tests {
 }
 ```
 
-- [ ] **Step 2: 运行并确认失败**
+- [x] **Step 2: 运行并确认失败**
 
 Run: `cargo test -p display`
 Expected: 编译失败，`find_in_path` 未定义。
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 ```rust
 use launcher_core::{DisplayConfig, GamescopeMode};
@@ -540,12 +540,12 @@ pub fn build_gamescope_args(
 }
 ```
 
-- [ ] **Step 4: 运行测试**
+- [x] **Step 4: 运行测试**
 
 Run: `cargo test -p display`
 Expected: 9 passed。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add crates/display
@@ -559,7 +559,7 @@ git commit -m "feat(display): add path lookup and gamescope argument builder"
 **Files:**
 - Modify: `crates/display/src/gamescope.rs`
 
-- [ ] **Step 1: 追加测试**
+- [x] **Step 1: 追加测试**
 
 ```rust
     use launcher_core::{DisplayBackend, GamescopeMode};
@@ -649,12 +649,12 @@ git commit -m "feat(display): add path lookup and gamescope argument builder"
     }
 ```
 
-- [ ] **Step 2: 运行测试**
+- [x] **Step 2: 运行测试**
 
 Run: `cargo test -p display`
 Expected: 16 passed。
 
-- [ ] **Step 3: 提交**
+- [x] **Step 3: 提交**
 
 ```bash
 git add crates/display
@@ -669,7 +669,7 @@ git commit -m "test(display): cover gamescope argument truth table"
 - Modify: `crates/display/src/lib.rs`
 - Modify: `CHANGELOG.md`
 
-- [ ] **Step 1: 确认导出**
+- [x] **Step 1: 确认导出**
 
 ```rust
 mod gamescope;
@@ -683,7 +683,7 @@ pub use session::{detect_session, session_from, SessionType};
 pub use xrandr::{list_x11_outputs, parse_xrandr_output, X11Output};
 ```
 
-- [ ] **Step 2: 全量检查**
+- [x] **Step 2: 全量检查**
 
 Run:
 
@@ -695,7 +695,7 @@ cargo test -p display
 
 Expected: 全部通过。
 
-- [ ] **Step 3: 更新 CHANGELOG**
+- [x] **Step 3: 更新 CHANGELOG**
 
 ```markdown
 ## P5 — 显示
@@ -708,7 +708,7 @@ Expected: 全部通过。
 验证：`cargo test -p display`。
 ```
 
-- [ ] **Step 4: 提交**
+- [x] **Step 4: 提交**
 
 ```bash
 git add crates/display CHANGELOG.md
@@ -719,14 +719,26 @@ git commit -m "chore(display): finish display phase"
 
 ## P5 验收
 
-- [ ] `cargo test -p display` 通过。
-- [ ] `XDG_SESSION_TYPE=wayland` 时 `detect_session()` 返回 Wayland；大小写不匹配返回 Unknown。
-- [ ] 解析本机样例得到 `eDP-1` 活跃、`1920x1080`、刷新率 `144`。
-- [ ] 断开的输出仍在列表中，`connected=false`、`active=false`。
-- [ ] `Auto` 只在 Wayland 且 gamescope 可用时生效；`Forced` 总是生成参数。
-- [ ] X11 参数不包含 `-O`；Unknown 不包含 `--backend`。
-- [ ] 参数总是以 `--` 结尾。
+- [x] `cargo test -p display` 通过。
+- [x] `XDG_SESSION_TYPE=wayland` 时 `detect_session()` 返回 Wayland；大小写不匹配返回 Unknown。
+- [x] 解析本机样例得到 `eDP-1` 活跃、`1920x1080`、刷新率 `144`。
+- [x] 断开的输出仍在列表中，`connected=false`、`active=false`。
+- [x] `Auto` 只在 Wayland 且 gamescope 可用时生效；`Forced` 总是生成参数。
+- [x] X11 参数不包含 `-O`；Unknown 不包含 `--backend`。
+- [x] 参数总是以 `--` 结尾。
 
 ## 实施记录
 
-（实施后填写：本机 xrandr 输出、gamescope 版本/缺失、偏差。）
+- 本机环境：Wayland 会话（`XDG_SESSION_TYPE=wayland`，`DISPLAY=:0`），
+  `xrandr --query` 仅有一个输出：
+  `HDMI-1 connected primary 1920x1080+0+0`，当前模式 `1920x1080 143.88*+`，
+  screen 当前 `3840x1080`。规格 D2 的 `eDP-1` 样例为典型笔记本输出，
+  本机无该输出，解析逻辑由该样例覆盖（包含断开/非活动输出与多输出场景）。
+- gamescope：本机未安装（`command -v gamescope` 无结果）。
+  PATH 查找用临时目录 + 伪造可执行文件覆盖；Auto 的可用性由注入的
+  `available` 参数覆盖；`gamescope_path()` 返回 `None` 符合预期。
+- 测试计数与计划一致：会话 2、xrandr 4（累计 6）、PATH 3（累计 9）、
+  真值表 7（累计 16）。`cargo test --workspace` 为 98 passed、1 ignored。
+- 偏差：D3 测试的 `PathBuf::from(gamescope)` 触发 clippy
+  `useless_conversion`，改为直接比较并删除未使用的 `PathBuf` 导入；
+  其余实现与计划一致。

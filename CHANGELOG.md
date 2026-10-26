@@ -2,6 +2,42 @@
 
 本文件记录每个实施阶段完成的内容、与规格的偏差以及验证结果。
 
+## P5 — display
+
+### 完成内容
+
+- 会话检测：`XDG_SESSION_TYPE` 精确匹配 `x11`/`wayland`，缺失或其他值
+  （包括大小写不匹配）一律为 Unknown。
+- `xrandr --query` 解析：仅把第二个 token 为 `connected`/`disconnected`
+  的行当作输出头；带 `+offset` 的几何 token 判定为活动输出；模式行以 `*`
+  标记当前模式，小数刷新率四舍五入为整数（143.88 → 144）；断开与非活动
+  输出仍保留在结果中。
+- PATH 查找：按 `split_paths` 顺序返回第一个可执行普通文件，跳过目录与
+  无执行位文件；`gamescope_path` 用 `OnceLock` 缓存一次 PATH 扫描。
+- gamescope 真值表：Off 永不启用；Auto 仅在 Wayland 且二进制可用时启用；
+  Forced 始终启用。参数顺序固定为 `-W/-H`、`-r`、`-f`、`-O <monitor>`
+  （仅 Wayland）、`--backend wayland|x11`（Unknown 省略），始终以 `--` 结尾。
+
+### 与规格的偏差
+
+- 无测试计数偏差：D1=2、D2=6、D3=9、D4=16，与计划一致。
+- D3 测试中 clippy 报 `useless_conversion`，将 `PathBuf::from(gamescope)`
+  改为直接比较，并删除随之未使用的 `PathBuf` 导入。
+- 本机仅有 HDMI-1 一个输出（无 eDP-1），D2 使用规格给定的典型笔记本样例
+  覆盖 eDP-1 活跃输出与 143.88 → 144 的刷新率取整。
+
+### 验证
+
+- 本机 `xrandr --query`：`HDMI-1 connected primary 1920x1080+0+0`，
+  当前模式 `1920x1080 143.88*+`，screen 当前 3840x1080。
+- 本机未安装 gamescope（`command -v gamescope` 无结果）；
+  `find_in_path`/`gamescope_path` 由临时目录中的伪造可执行文件覆盖，
+  Auto 的可用性分支用 `available` 参数覆盖。
+- `cargo test -p display`：16 passed。
+- `cargo test --workspace`：98 passed，1 ignored。
+- `cargo fmt --all --check`、`cargo clippy --workspace --all-targets -- -D warnings`、
+  `cargo build --workspace`：通过。
+
 ## P4 — prefix 与 DXVK
 
 ### 完成内容
