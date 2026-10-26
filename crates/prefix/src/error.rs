@@ -1,0 +1,36 @@
+use launcher_core::Arch;
+use std::path::PathBuf;
+use thiserror::Error;
+
+#[derive(Debug, Error)]
+pub enum PrefixError {
+    #[error("io: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("runner: {0}")]
+    Runner(#[from] runner_wine::RunnerError),
+    #[error("background task failed: {0}")]
+    Join(String),
+    #[error("prefix arch mismatch: expected {expected:?}, found {existing:?}")]
+    ArchMismatch {
+        expected: Arch,
+        existing: Option<Arch>,
+    },
+    #[error("wineboot failed with code {code:?}: {stderr}")]
+    WinebootFailed { code: Option<i32>, stderr: String },
+    #[error("wineboot timed out after {seconds}s")]
+    WinebootTimeout { seconds: u64 },
+    #[error("prefix initialization finished but system.reg is missing")]
+    InitializationIncomplete,
+    #[error("prefix is not initialized: {0:?}")]
+    PrefixNotInitialized(PathBuf),
+    #[error("dxvk source is missing a required file: {path:?}")]
+    DxvkSourceInvalid { path: PathBuf },
+    #[error("reg add failed for {dll}: code {code:?}: {stderr}")]
+    RegAddFailed {
+        dll: String,
+        code: Option<i32>,
+        stderr: String,
+    },
+    #[error("reg add timed out for {dll}")]
+    RegAddTimeout { dll: String },
+}
