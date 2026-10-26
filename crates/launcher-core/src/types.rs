@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::path::PathBuf;
+use uuid::Uuid;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "snake_case")]
@@ -110,11 +112,42 @@ impl Default for DisplayConfig {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct Runner {
+    pub id: Uuid,
+    pub kind: RunnerKind,
+    pub name: String,
+    pub binary_path: PathBuf,
+    pub root_dir: PathBuf,
+    pub arch: Arch,
+    pub source: RunnerSource,
+    pub verified: bool,
+    pub version_string: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct Game {
+    pub id: Uuid,
+    pub name: String,
+    pub executable_path: PathBuf,
+    pub working_dir: Option<PathBuf>,
+    pub runner_id: Option<Uuid>,
+    pub prefix_path: Option<PathBuf>,
+    pub arch: Arch,
+    pub display: DisplayConfig,
+    pub env_overrides: BTreeMap<String, String>,
+    pub dll_overrides: Vec<DllOverride>,
+    pub args: Vec<String>,
+    pub created_at: i64,
+    pub last_played_at: Option<i64>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
     use std::path::PathBuf;
+    use uuid::Uuid;
 
     #[test]
     fn arch_serializes_as_lowercase() {
@@ -221,5 +254,87 @@ mod tests {
             serde_json::from_str::<DllOverride>(&encoded).unwrap(),
             value
         );
+    }
+
+    fn sample_runner() -> Runner {
+        Runner {
+            id: Uuid::new_v4(),
+            kind: RunnerKind::Proton,
+            name: "GE-Proton9-1".into(),
+            binary_path: PathBuf::from("/opt/GE-Proton9-1/proton"),
+            root_dir: PathBuf::from("/opt/GE-Proton9-1"),
+            arch: Arch::Win64,
+            source: RunnerSource::Imported {
+                original_path: PathBuf::from("/opt/GE-Proton9-1"),
+            },
+            verified: true,
+            version_string: Some("GE-Proton9-1".into()),
+        }
+    }
+
+    fn sample_game() -> Game {
+        Game {
+            id: Uuid::new_v4(),
+            name: "赛博朋克 2077".into(),
+            executable_path: PathBuf::from("/games/Cyberpunk 2077/bin/x64/Cyberpunk2077.exe"),
+            working_dir: Some(PathBuf::from("/games/Cyberpunk 2077/bin/x64")),
+            runner_id: Some(Uuid::new_v4()),
+            prefix_path: None,
+            arch: Arch::Win64,
+            display: DisplayConfig::default(),
+            env_overrides: BTreeMap::from([
+                ("WINEDEBUG".into(), "-all".into()),
+                ("DXVK_HUD".into(), "fps".into()),
+            ]),
+            dll_overrides: vec![
+                DllOverride {
+                    dll_name: "d3d11".into(),
+                    mode: OverrideMode::NativeBuiltin,
+                },
+                DllOverride {
+                    dll_name: "winmm".into(),
+                    mode: OverrideMode::Native,
+                },
+            ],
+            args: vec!["-skipStartScreen".into(), "--windowed".into()],
+            created_at: 1_700_000_000,
+            last_played_at: Some(1_700_000_100),
+        }
+    }
+
+    #[test]
+    fn runner_round_trips() {
+        let value = sample_runner();
+        let encoded = serde_json::to_string(&value).unwrap();
+        assert_eq!(serde_json::from_str::<Runner>(&encoded).unwrap(), value);
+    }
+
+    #[test]
+    fn game_round_trips_with_all_fields() {
+        let value = sample_game();
+        let encoded = serde_json::to_string(&value).unwrap();
+        assert_eq!(serde_json::from_str::<Game>(&encoded).unwrap(), value);
+    }
+
+    #[test]
+    fn game_json_uses_fixed_field_names() {
+        let value = serde_json::to_value(sample_game()).unwrap();
+        for key in [
+            "id",
+            "name",
+            "executable_path",
+            "working_dir",
+            "runner_id",
+            "prefix_path",
+            "arch",
+            "display",
+            "env_overrides",
+            "dll_overrides",
+            "args",
+            "created_at",
+            "last_played_at",
+        ] {
+            assert!(value.get(key).is_some(), "missing field {key}");
+        }
     }
 }
