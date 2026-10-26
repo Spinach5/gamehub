@@ -135,4 +135,109 @@ mod tests {
         let found = find_in_path("gamescope", Some(path_env.as_os_str())).unwrap();
         assert_eq!(found, gamescope);
     }
+
+    use launcher_core::{DisplayBackend, GamescopeMode};
+
+    fn config(gamescope: GamescopeMode) -> DisplayConfig {
+        DisplayConfig {
+            backend: DisplayBackend::Auto,
+            monitor: Some("eDP-1".into()),
+            resolution: Some((2560, 1440)),
+            refresh_rate: Some(144),
+            fullscreen: true,
+            gamescope,
+        }
+    }
+
+    #[test]
+    fn off_never_uses_gamescope() {
+        let config = config(GamescopeMode::Off);
+        assert!(!should_use_gamescope(&config, SessionType::Wayland, true));
+        assert!(build_gamescope_args(&config, SessionType::Wayland, true).is_empty());
+    }
+
+    #[test]
+    fn auto_requires_wayland_and_availability() {
+        let config = config(GamescopeMode::Auto);
+        assert!(should_use_gamescope(&config, SessionType::Wayland, true));
+        assert!(!should_use_gamescope(&config, SessionType::Wayland, false));
+        assert!(!should_use_gamescope(&config, SessionType::X11, true));
+        assert!(!should_use_gamescope(&config, SessionType::Unknown, true));
+    }
+
+    #[test]
+    fn forced_generates_arguments_even_when_unavailable() {
+        let config = config(GamescopeMode::Forced);
+        assert!(should_use_gamescope(&config, SessionType::X11, false));
+        assert_eq!(
+            build_gamescope_args(&config, SessionType::X11, false),
+            vec![
+                "-W",
+                "2560",
+                "-H",
+                "1440",
+                "-r",
+                "144",
+                "-f",
+                "--backend",
+                "x11",
+                "--"
+            ]
+        );
+    }
+
+    #[test]
+    fn wayland_arguments_are_exact_and_include_output() {
+        let config = config(GamescopeMode::Auto);
+        assert_eq!(
+            build_gamescope_args(&config, SessionType::Wayland, true),
+            vec![
+                "-W",
+                "2560",
+                "-H",
+                "1440",
+                "-r",
+                "144",
+                "-f",
+                "-O",
+                "eDP-1",
+                "--backend",
+                "wayland",
+                "--"
+            ]
+        );
+    }
+
+    #[test]
+    fn empty_options_only_produce_backend_and_separator() {
+        let config = DisplayConfig {
+            backend: DisplayBackend::Auto,
+            monitor: None,
+            resolution: None,
+            refresh_rate: None,
+            fullscreen: false,
+            gamescope: GamescopeMode::Auto,
+        };
+        assert_eq!(
+            build_gamescope_args(&config, SessionType::Wayland, true),
+            vec!["--backend", "wayland", "--"]
+        );
+    }
+
+    #[test]
+    fn x11_does_not_pass_output_flag() {
+        let config = config(GamescopeMode::Forced);
+        let args = build_gamescope_args(&config, SessionType::X11, true);
+        assert!(!args.contains(&"-O".to_string()));
+        assert_eq!(args.last().map(String::as_str), Some("--"));
+    }
+
+    #[test]
+    fn unknown_session_omits_backend_flag() {
+        let config = config(GamescopeMode::Forced);
+        assert_eq!(
+            build_gamescope_args(&config, SessionType::Unknown, false),
+            vec!["-W", "2560", "-H", "1440", "-r", "144", "-f", "--"]
+        );
+    }
 }
