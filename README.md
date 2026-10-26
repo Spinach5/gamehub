@@ -14,8 +14,9 @@ runner、创建 prefix、注入用户提供的 DXVK、配置显示与 gamescope�
   桌面环境需要提供 portal 服务。
 - **显示**：X11 路径使用 `xrandr`；Wayland 可选 `gamescope`（未安装时
   仅能构造参数，启动会给出明确错误）。
-- **字体**：不打包字体，Iced 0.13（cosmic-text）加载系统字体并做缺字回退；
-  需要系统安装中文字体（如 Noto Sans CJK SC、WenQuanYi Zen Hei）。
+- **字体**：不打包字体。ui 将默认字体设为 `Noto Sans CJK SC`（实测 Iced
+  0.13 默认 SansSerif 在本机不回落 CJK）；系统需安装该字体，或将其改为
+  其他已安装的中文字体。
 
 ## 构建与运行
 

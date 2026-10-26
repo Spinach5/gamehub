@@ -2,6 +2,56 @@
 
 本文件记录每个实施阶段完成的内容、与规格的偏差以及验证结果。
 
+## P7 — UI 骨架
+
+### 完成内容
+
+- ui 拆分 lib/bin，`ui::run()` 统一初始化应用目录、日志（stderr + 每日文件）、
+  DB 与 Iced；`main.rs` 只调用 `ui::run()`。
+- `App` 持有规格定义的全部状态；启动通过 `Arc<Mutex<Db>>` + `spawn_blocking`
+  异步加载 games/runners/settings/session/xrandr/gamescope；DB 打开失败进入
+  fatal 页。
+- Library 列表（空态、运行中标记、最近游玩）、基础 GameDetail（名称、可执行
+  文件、工作目录、架构、保存）、只读 RunnerManager 与 Settings。
+- `GameDraft` 校验：名称非空、可执行文件为绝对路径、工作目录/prefix 为绝对
+  路径、分辨率成对且 >0、刷新率 >0、环境变量键合法且禁止手写
+  `WINEDLLOVERRIDES`、DLL 名去 `.dll` 归一化/去重/拒绝非法字符、参数去除
+  空行。
+- rfd 0.17 异步文件对话框（`spawn_blocking`）：选择 `.exe` 后创建草稿；
+  取消或对话框失败返回 `None`，状态不变且不报错。保存任务在阻塞线程重新
+  校验 exe 与工作目录后写入 DB。
+- 默认字体设为 `Noto Sans CJK SC`。
+
+### 与规格的偏差
+
+- 提交顺序：U1–U5 按规格逐任务提交会让 crate 在中间状态无法编译（U1 声明
+  了 U2–U5 才创建的模块），因此 U2 单独提交，U1/U3/U4/U5 在规格指定的检查点
+  合并提交，U5 的测试随该提交加入。
+- `sort_games` 使用 `sort_by_key` 以满足 clippy `unnecessary_sort_by`，排序
+  语义不变。
+- 首次实际运行发现 Iced 0.13 默认字体在本机不回落 CJK，中文显示为方块；
+  按 01-foundation 的应急方案将 `default_font` 设为系统已安装的
+  `Noto Sans CJK SC`，仍未打包字体。
+- 额外增加 `saved_game_survives_reopen` 测试（任务测试共 16 个而非 15 个），
+  用文件数据库重开验证重启持久化。
+
+### 验证
+
+- `cargo test -p ui`：16 passed（12 draft + 4 tasks）。
+- `cargo test --workspace`：146 passed，1 ignored。
+- `cargo fmt --all --check`、`cargo clippy --workspace --all-targets -- -D warnings`、
+  `cargo build --workspace`：通过。
+- UI 手工验证（XWayland + XTEST 真实点击，桌面 portal 截图核对）：
+  - 启动后立即显示 Library，空态提示正确；
+  - “新建游戏”打开 rfd 对话框（本机首选 Wayland portal；无会话总线时 rfd
+    回退 zenity），选择 exe 后进入“新建游戏”，保存写入 DB；
+  - 详情页编辑名称并保存，DB 与重启后的 Library 均更新；
+  - Library → GameDetail → Settings → RunnerManager → Library 导航正常；
+  - 重启后两张卡片仍在；
+  - `XDG_DATA_HOME=/dev/null/gh` 时显示 fatal 页及数据库错误详情。
+  - Wayland portal 对话框内部按钮无法用 X11 合成事件点击；取消路径
+    （rfd 返回 `None` → 状态不变、无错误）由代码路径确认。
+
 ## P6 — 启动管线
 
 ### 完成内容

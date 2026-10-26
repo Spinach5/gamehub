@@ -36,6 +36,7 @@ pub fn run() -> iced::Result {
 
     iced::application("gamehub", App::update, App::view)
         .theme(|_| iced::Theme::Dark)
+        .default_font(iced::Font::with_name("Noto Sans CJK SC"))
         .window(iced::window::Settings {
             size: iced::Size::new(1180.0, 760.0),
             min_size: Some(iced::Size::new(900.0, 600.0)),

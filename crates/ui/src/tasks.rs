@@ -115,6 +115,24 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn saved_game_survives_reopen() {
+        let dir = tempdir().unwrap();
+        let exe = dir.path().join("game.exe");
+        fs::write(&exe, b"MZ").unwrap();
+        let db_path = dir.path().join("gamehub.db");
+
+        let value = game(exe);
+        {
+            let db = Arc::new(Mutex::new(Db::open(&db_path).unwrap()));
+            save_game(db, value.clone(), true).await.unwrap();
+        }
+
+        let db = Arc::new(Mutex::new(Db::open(&db_path).unwrap()));
+        let data = load_initial(db).await.unwrap();
+        assert_eq!(data.games, vec![value]);
+    }
+
+    #[tokio::test]
     async fn load_initial_reads_database_state() {
         let db = Db::open_in_memory().unwrap();
         db.set_setting(crate::app::SETTING_PREFIX_ROOT, "/tmp/prefixes")

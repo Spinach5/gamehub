@@ -1,6 +1,6 @@
 # P7 UI 骨架 Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** 把 `ui` 从冒烟程序变成可用的应用骨架：启动加载、Library、基础 GameDetail、本地 exe 导入、草稿校验与保存、rfd 文件对话框、错误页。
 
@@ -52,7 +52,7 @@ pub struct App {
 - Create: `crates/ui/src/views/mod.rs`
 - Create: `crates/ui/src/widgets.rs`
 
-- [ ] **Step 1: 修改 `Cargo.toml`**
+- [x] **Step 1: 修改 `Cargo.toml`**
 
 在 `[[bin]]` 之前加：
 
@@ -62,7 +62,7 @@ name = "ui"
 path = "src/lib.rs"
 ```
 
-- [ ] **Step 2: 把 `main.rs` 缩到最小**
+- [x] **Step 2: 把 `main.rs` 缩到最小**
 
 ```rust
 fn main() -> iced::Result {
@@ -70,7 +70,7 @@ fn main() -> iced::Result {
 }
 ```
 
-- [ ] **Step 3: 写 `lib.rs`（含日志初始化）**
+- [x] **Step 3: 写 `lib.rs`（含日志初始化）**
 
 ```rust
 pub mod app;
@@ -159,7 +159,7 @@ fn init_logging(logs_dir: &Path) -> Option<WorkerGuard> {
 
 `_log_guard` 必须在 `run()` 结束前存活。
 
-- [ ] **Step 4: 写 `app.rs` 的状态与启动加载**
+- [x] **Step 4: 写 `app.rs` 的状态与启动加载**
 
 ```rust
 use crate::draft::{DraftAction, EnvRow, GameDraft};
@@ -559,7 +559,7 @@ impl App {
 }
 ```
 
-- [ ] **Step 5: 写 `tasks.rs` 的加载与保存**
+- [x] **Step 5: 写 `tasks.rs` 的加载与保存**
 
 ```rust
 use display::{SessionType, X11Output};
@@ -637,7 +637,7 @@ pub async fn save_game(
 }
 ```
 
-- [ ] **Step 6: 写最小 `widgets.rs`**
+- [x] **Step 6: 写最小 `widgets.rs`**
 
 ```rust
 use crate::app::{AppError, Message};
@@ -733,7 +733,7 @@ pub fn arch_choice(arch: launcher_core::Arch) -> Choice<launcher_core::Arch> {
 }
 ```
 
-- [ ] **Step 7: 创建 `views/mod.rs`**
+- [x] **Step 7: 创建 `views/mod.rs`**
 
 ```rust
 pub mod game_detail;
@@ -744,7 +744,7 @@ pub mod settings;
 
 不要创建临时 stub。`draft.rs`、`dialogs.rs` 与四个 view 文件分别在 U2、U3、U4 中按最终代码创建。
 
-- [ ] **Step 8: 与 U2–U4 一起编译**
+- [x] **Step 8: 与 U2–U4 一起编译**
 
 U1 与 U2、U3、U4 属于同一个检查点：U1 引入了 `draft`/`dialogs`/`views` 模块，但对应文件在后续任务创建。执行顺序：
 
@@ -756,12 +756,12 @@ U1 与 U2、U3、U4 属于同一个检查点：U1 引入了 `draft`/`dialogs`/`v
 
 不要在检查点中间提交带 stub 的代码。
 
-- [ ] **Step 9: 编译验证**
+- [x] **Step 9: 编译验证**
 
 Run: `cargo build -p ui`
 Expected: 成功。若报 `Message` 未实现 `Debug/Clone`，检查组件的 derive。
 
-- [ ] **Step 10: 提交（与 U2–U5 合并）**
+- [x] **Step 10: 提交（与 U2–U5 合并）**
 
 ```bash
 git add crates/ui
@@ -775,7 +775,7 @@ git commit -m "feat(ui): add app shell, draft validation, dialogs and core views
 **Files:**
 - Modify: `crates/ui/src/draft.rs`
 
-- [ ] **Step 1: 写完整测试**
+- [x] **Step 1: 写完整测试**
 
 创建 `crates/ui/src/draft.rs`，内容如下：
 
@@ -1003,12 +1003,12 @@ mod tests {
 }
 ```
 
-- [ ] **Step 2: 运行并确认失败**
+- [x] **Step 2: 运行并确认失败**
 
 Run: `cargo test -p ui draft`
 Expected: 编译失败，字段/方法缺失。
 
-- [ ] **Step 3: 写完整实现**
+- [x] **Step 3: 写完整实现**
 
 在测试模块之前写：
 
@@ -1345,12 +1345,12 @@ impl GameDraft {
 }
 ```
 
-- [ ] **Step 4: 运行测试**
+- [x] **Step 4: 运行测试**
 
 Run: `cargo test -p ui draft`
 Expected: 12 passed。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add crates/ui
@@ -1364,7 +1364,7 @@ git commit -m "feat(ui): add game draft model with full validation"
 **Files:**
 - Modify: `crates/ui/src/dialogs.rs`
 
-- [ ] **Step 1: 替换 `dialogs.rs`**
+- [x] **Step 1: 替换 `dialogs.rs`**
 
 ```rust
 use crate::app::Message;
@@ -1402,14 +1402,14 @@ pub fn pick(intent: DialogIntent) -> Task<Message> {
 }
 ```
 
-- [ ] **Step 2: 编译并手工验证**
+- [x] **Step 2: 编译并手工验证**
 
 Run: `cargo build -p ui`
 Expected: 成功。
 
 Run: `cargo run -p ui`（需 U1–U5 一起编译后再验证）。点击“新建游戏”，对话框应能打开并选择 `.exe`；取消返回 `None`，不报错。
 
-- [ ] **Step 3: 提交**
+- [x] **Step 3: 提交**
 
 ```bash
 git add crates/ui
@@ -1425,7 +1425,7 @@ git commit -m "feat(ui): add async rfd file dialogs"
 - Create: `crates/ui/src/views/runners.rs`
 - Create: `crates/ui/src/views/settings.rs`
 
-- [ ] **Step 1: 实现 Library**
+- [x] **Step 1: 实现 Library**
 
 ```rust
 use crate::app::{App, Message, Screen};
@@ -1478,7 +1478,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
 }
 ```
 
-- [ ] **Step 2: 实现只读 RunnerManager**
+- [x] **Step 2: 实现只读 RunnerManager**
 
 ```rust
 use crate::app::{App, Message, Screen};
@@ -1519,7 +1519,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
 }
 ```
 
-- [ ] **Step 3: 实现只读 Settings**
+- [x] **Step 3: 实现只读 Settings**
 
 ```rust
 use crate::app::{App, Message, Screen};
@@ -1563,17 +1563,17 @@ pub fn view(app: &App) -> Element<'_, Message> {
 }
 ```
 
-- [ ] **Step 4: 编译**
+- [x] **Step 4: 编译**
 
 Run: `cargo build -p ui`
 Expected: 成功。
 
-- [ ] **Step 5: 手工验证**
+- [x] **Step 5: 手工验证**
 
 Run: `cargo run -p ui`
 Expected: 顶部按钮可导航；空库有提示；找不到 `.exe` 时对话框取消不报错。
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```bash
 git add crates/ui
@@ -1587,7 +1587,7 @@ git commit -m "feat(ui): add library, runner and settings read-only views"
 **Files:**
 - Create: `crates/ui/src/views/game_detail.rs`
 
-- [ ] **Step 1: 实现基础详情页**
+- [x] **Step 1: 实现基础详情页**
 
 ```rust
 use crate::app::{App, Message, Screen};
@@ -1669,7 +1669,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
 }
 ```
 
-- [ ] **Step 2: 增加保存任务测试**
+- [x] **Step 2: 增加保存任务测试**
 
 在 `tasks.rs` 测试模块：
 
@@ -1745,12 +1745,12 @@ mod tests {
 
 `super::super::app::SETTING_PREFIX_ROOT` 在 `tasks::tests` 中指向 `crate::app`；更直接使用 `crate::app::SETTING_PREFIX_ROOT`。把上面两处替换为 `crate::app::SETTING_PREFIX_ROOT`。
 
-- [ ] **Step 3: 运行测试**
+- [x] **Step 3: 运行测试**
 
 Run: `cargo test -p ui`
 Expected: 15 passed（12 draft + 3 tasks）。
 
-- [ ] **Step 4: 手工全流程**
+- [x] **Step 4: 手工全流程**
 
 Run: `cargo run -p ui`
 
@@ -1760,7 +1760,7 @@ Run: `cargo run -p ui`
 4. 关闭应用再启动，卡片仍在。
 5. 点击卡片进入详情，能重新编辑并保存。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add crates/ui
@@ -1774,7 +1774,7 @@ git commit -m "feat(ui): add basic game detail and persistence flow"
 **Files:**
 - Modify: `CHANGELOG.md`
 
-- [ ] **Step 1: 全量检查**
+- [x] **Step 1: 全量检查**
 
 ```bash
 cargo fmt --all
@@ -1784,7 +1784,7 @@ cargo test -p ui
 
 Expected: 全部通过。特别检查没有遗留的临时 stub 或未使用函数。
 
-- [ ] **Step 2: 更新 CHANGELOG**
+- [x] **Step 2: 更新 CHANGELOG**
 
 ```markdown
 ## P7 — UI 骨架
@@ -1798,7 +1798,7 @@ Expected: 全部通过。特别检查没有遗留的临时 stub 或未使用函�
 验证：`cargo test -p ui`；重启后配置保留。
 ```
 
-- [ ] **Step 3: 提交**
+- [x] **Step 3: 提交**
 
 ```bash
 git add crates/ui CHANGELOG.md
@@ -1809,14 +1809,31 @@ git commit -m "chore(ui): finish UI shell phase"
 
 ## P7 验收
 
-- [ ] `cargo test -p ui` 通过。
-- [ ] 应用启动后 1 秒内显示 Library（不阻塞在 DB/IO）。
-- [ ] 导入 exe → 编辑 → 保存 → 重启后仍在。
-- [ ] 取消文件对话框不产生错误。
-- [ ] DB 打开失败时显示 fatal 页，不进入空白界面。
-- [ ] 草稿校验覆盖：空名称、相对路径、半填分辨率、非法刷新率、重复/非法环境变量、`.dll` 归一化、重复 DLL、空参数行。
-- [ ] 视图导航 Library ↔ GameDetail / RunnerManager / Settings 正常。
+- [x] `cargo test -p ui` 通过。
+- [x] 应用启动后 1 秒内显示 Library（不阻塞在 DB/IO）。
+- [x] 导入 exe → 编辑 → 保存 → 重启后仍在。
+- [x] 取消文件对话框不产生错误。
+- [x] DB 打开失败时显示 fatal 页，不进入空白界面。
+- [x] 草稿校验覆盖：空名称、相对路径、半填分辨率、非法刷新率、重复/非法环境变量、`.dll` 归一化、重复 DLL、空参数行。
+- [x] 视图导航 Library ↔ GameDetail / RunnerManager / Settings 正常。
 
 ## 实施记录
 
-（实施后填写：Iced 实际 API 差异、字体名、UI 手工验证结果。）
+- Iced API：0.13.1 与计划一致（`iced::application(...).theme().window().run_with()`、
+  `Task::perform`/`Task::none`、`horizontal_space()`、`pick_list`、
+  `button(card)`、`on_press_maybe` 均可用）；另使用 builder 的
+  `.default_font(iced::Font::with_name(...))`。
+- 字体：Iced 默认 SansSerif 在本机不回落 CJK，首次运行 Library 中文为方块；
+  按 01-foundation 的应急方案设置 `Noto Sans CJK SC` 后正常，未打包字体。
+  README 的字体说明同步更新。
+- 测试：`cargo test -p ui` 16 passed（12 draft + 4 tasks，额外
+  `saved_game_survives_reopen`）；`cargo test --workspace` 146 passed，
+  1 ignored；fmt/clippy/build 全量通过。
+- 手工验证：XWayland + XTEST 真实点击应用窗口，桌面 portal 截图核对。
+  已确认启动即显示 Library、导入 exe、编辑并保存、重启持久化、
+  Library ↔ GameDetail / Settings / RunnerManager 导航、DB 打开失败显示
+  fatal 页。本机 rfd 首选 Wayland portal；portal 对话框内部按钮无法用 X11
+  合成事件点击，取消路径（返回 `None` → 状态不变、无错误）由代码路径与
+  对话框失败路径确认。
+- 偏差：U1–U5 按可编译检查点合并提交；`sort_by_key`（clippy）；额外持久化
+  测试；显式 CJK 默认字体。详见 CHANGELOG P7。
