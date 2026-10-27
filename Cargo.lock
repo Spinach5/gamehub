@@ -99,7 +99,7 @@ dependencies = [
 
 [[package]]
 name = "application"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "display",
  "launch",
@@ -850,11 +850,13 @@ dependencies = [
 
 [[package]]
 name = "display"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "launcher-core",
  "tempfile",
+ "thiserror 2.0.21",
  "tracing",
+ "zbus",
 ]
 
 [[package]]
@@ -1805,7 +1807,7 @@ dependencies = [
 
 [[package]]
 name = "launch"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "chrono",
  "display",
@@ -1823,7 +1825,7 @@ dependencies = [
 
 [[package]]
 name = "launcher-core"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "serde",
  "serde_json",
@@ -2704,7 +2706,7 @@ dependencies = [
 
 [[package]]
 name = "prefix"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "launcher-core",
  "runner-wine",
@@ -2967,7 +2969,7 @@ dependencies = [
 
 [[package]]
 name = "runner-wine"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "launcher-core",
  "tempfile",
@@ -3398,7 +3400,7 @@ checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
 name = "storage"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "launcher-core",
  "rusqlite",
@@ -3794,7 +3796,7 @@ dependencies = [
 
 [[package]]
 name = "ui"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "application",
  "chrono",

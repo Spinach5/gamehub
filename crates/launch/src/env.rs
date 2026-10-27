@@ -99,6 +99,16 @@ fn apply_tuning(env: &mut BTreeMap<String, String>, request: &LaunchRequest) {
     }
 }
 
+fn apply_x11_driver(env: &mut BTreeMap<String, String>, request: &LaunchRequest) {
+    env.remove("WAYLANDDRV_PRIMARY_MONITOR");
+    env.remove("PROTON_WAYLAND_MONITOR");
+    env.insert("WINE_GRAPHICS_DRIVER".into(), "x11".into());
+    if request.runner.kind == RunnerKind::Proton {
+        env.insert("PROTON_ENABLE_WAYLAND".into(), "0".into());
+        env.insert("PROTON_USE_WAYLAND".into(), "0".into());
+    }
+}
+
 pub fn build_env(request: &LaunchRequest) -> Result<BTreeMap<String, String>, LaunchError> {
     let prefix_plan = plan_for_game(
         &request.game,
@@ -153,13 +163,26 @@ pub fn build_env(request: &LaunchRequest) -> Result<BTreeMap<String, String>, La
             match request.session {
                 SessionType::X11 => {
                     env.insert("__GL_SYNC_DISPLAY_DEVICE".into(), monitor.to_string());
+                    apply_x11_driver(&mut env, request);
+                }
+                SessionType::Wayland if env.contains_key("DISPLAY") => {
+                    // The selected monitor is applied by making it the XRandR
+                    // primary, which only affects Wine's X11 driver.
+                    env.insert("__GL_SYNC_DISPLAY_DEVICE".into(), monitor.to_string());
+                    apply_x11_driver(&mut env, request);
                 }
                 SessionType::Wayland => {
+                    env.remove("WINE_GRAPHICS_DRIVER");
                     env.insert("WAYLANDDRV_PRIMARY_MONITOR".into(), monitor.to_string());
                     if request.runner.kind == RunnerKind::Proton {
                         env.insert("PROTON_ENABLE_WAYLAND".into(), "1".into());
+                        env.insert("PROTON_USE_WAYLAND".into(), "1".into());
                         env.insert("PROTON_WAYLAND_MONITOR".into(), monitor.to_string());
                     }
+                }
+                SessionType::Unknown if env.contains_key("DISPLAY") => {
+                    env.insert("__GL_SYNC_DISPLAY_DEVICE".into(), monitor.to_string());
+                    apply_x11_driver(&mut env, request);
                 }
                 SessionType::Unknown => {}
             }
@@ -400,7 +423,41 @@ mod tests {
     }
 
     #[test]
-    fn wayland_monitor_enables_proton_wayland_driver() {
+    fn wayland_with_xwayland_uses_x11_for_monitor_selection() {
+        let mut request = request();
+        request.session = SessionType::Wayland;
+        request.inherited_env = BTreeMap::from([("DISPLAY".into(), ":0".into())]);
+        request.game.display.monitor = Some("HDMI-1".into());
+
+        let env = build_env(&request).unwrap();
+        assert_eq!(env["WINE_GRAPHICS_DRIVER"], "x11");
+        assert_eq!(env["__GL_SYNC_DISPLAY_DEVICE"], "HDMI-1");
+        assert!(!env.contains_key("WAYLANDDRV_PRIMARY_MONITOR"));
+        assert!(!env.contains_key("PROTON_WAYLAND_MONITOR"));
+        assert!(!env.contains_key("PROTON_ENABLE_WAYLAND"));
+    }
+
+    #[test]
+    fn proton_with_xwayland_disables_the_wayland_driver() {
+        let mut request = request();
+        request.session = SessionType::Wayland;
+        request.inherited_env = BTreeMap::from([("DISPLAY".into(), ":0".into())]);
+        request.runner.kind = RunnerKind::Proton;
+        request.runner.binary_path = PathBuf::from("/opt/proton/proton");
+        request.runner.root_dir = PathBuf::from("/opt/proton");
+        request.game.prefix_path = Some(PathBuf::from("/data/compat"));
+        request.game.display.monitor = Some("HDMI-1".into());
+
+        let env = build_env(&request).unwrap();
+        assert_eq!(env["PROTON_ENABLE_WAYLAND"], "0");
+        assert_eq!(env["PROTON_USE_WAYLAND"], "0");
+        assert_eq!(env["WINE_GRAPHICS_DRIVER"], "x11");
+        assert!(!env.contains_key("PROTON_WAYLAND_MONITOR"));
+        assert!(!env.contains_key("WAYLANDDRV_PRIMARY_MONITOR"));
+    }
+
+    #[test]
+    fn wayland_monitor_enables_proton_wayland_driver_without_xwayland() {
         let mut request = request();
         request.session = SessionType::Wayland;
         request.runner.kind = RunnerKind::Proton;
@@ -411,9 +468,11 @@ mod tests {
 
         let env = build_env(&request).unwrap();
         assert_eq!(env["PROTON_ENABLE_WAYLAND"], "1");
+        assert_eq!(env["PROTON_USE_WAYLAND"], "1");
         assert_eq!(env["PROTON_WAYLAND_MONITOR"], "HDMI-1");
         assert_eq!(env["WAYLANDDRV_PRIMARY_MONITOR"], "HDMI-1");
         assert!(!env.contains_key("__GL_SYNC_DISPLAY_DEVICE"));
+        assert!(!env.contains_key("WINE_GRAPHICS_DRIVER"));
     }
 
     #[test]
@@ -429,6 +488,7 @@ mod tests {
         assert!(!env.contains_key("PROTON_ENABLE_WAYLAND"));
         assert!(!env.contains_key("PROTON_WAYLAND_MONITOR"));
         assert!(!env.contains_key("WAYLANDDRV_PRIMARY_MONITOR"));
+        assert!(!env.contains_key("WINE_GRAPHICS_DRIVER"));
     }
 
     #[test]

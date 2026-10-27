@@ -88,16 +88,71 @@ impl AppService {
         let plan =
             tokio::task::spawn_blocking(move || ::launch::build_plan(&plan_request)).await??;
 
-        let mut child = ::launch::spawn_plan_with_log(&plan, request.log_path.as_deref()).await?;
+        let target_monitor = request
+            .game
+            .display
+            .monitor
+            .as_deref()
+            .map(str::trim)
+            .filter(|monitor| !monitor.is_empty())
+            .map(str::to_string);
+        let uses_gamescope = display::should_use_gamescope(
+            &request.game.display,
+            request.session,
+            request.gamescope_path.is_some(),
+        );
+        let primary_to_restore = if !uses_gamescope && plan.env.contains_key("DISPLAY") {
+            match target_monitor {
+                Some(monitor) => {
+                    let session = request.session;
+                    match tokio::task::spawn_blocking(move || {
+                        display::set_primary_output(&monitor, session)
+                    })
+                    .await
+                    {
+                        Ok(Ok(previous)) => previous,
+                        Ok(Err(error)) => {
+                            tracing::warn!(%error, "cannot switch primary monitor");
+                            None
+                        }
+                        Err(error) => {
+                            tracing::warn!(%error, "primary monitor task failed");
+                            None
+                        }
+                    }
+                }
+                None => None,
+            }
+        } else {
+            None
+        };
+
+        let mut child =
+            match ::launch::spawn_plan_with_log(&plan, request.log_path.as_deref()).await {
+                Ok(child) => child,
+                Err(error) => {
+                    restore_primary(primary_to_restore, request.session).await;
+                    return Err(error.into());
+                }
+            };
         if let Some(process_group) = child.id() {
             if !self.register_process(game_id, process_group, runner, wine_prefix) {
                 let _ = child.kill().await;
+                restore_primary(primary_to_restore, request.session).await;
                 return Err(AppError::GameAlreadyRunning);
             }
         }
         let _ = events.send(LaunchEvent::Started { game_id });
 
+        // Wine reads the XRandR primary while starting up and keeps using it
+        // for the game window, so the original primary can be restored early.
+        if primary_to_restore.is_some() {
+            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+            restore_primary(primary_to_restore.clone(), request.session).await;
+        }
+
         let wait_result = child.wait().await;
+        restore_primary(primary_to_restore, request.session).await;
         self.unregister_process(game_id);
         let stopped = self.take_stop_requested(game_id);
         let timestamp = unix_now();
@@ -158,4 +213,16 @@ fn unix_now() -> i64 {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|duration| duration.as_secs() as i64)
         .unwrap_or(0)
+}
+
+async fn restore_primary(previous: Option<String>, session: display::SessionType) {
+    let Some(previous) = previous else {
+        return;
+    };
+    match tokio::task::spawn_blocking(move || display::set_primary_output(&previous, session)).await
+    {
+        Ok(Ok(_)) => {}
+        Ok(Err(error)) => tracing::warn!(%error, "failed to restore primary monitor"),
+        Err(error) => tracing::warn!(%error, "primary monitor restore task failed"),
+    }
 }

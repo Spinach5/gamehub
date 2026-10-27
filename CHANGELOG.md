@@ -2,6 +2,34 @@
 
 本文件记录每个实施阶段完成的内容、与规格的偏差以及验证结果。
 
+## v0.3.3 — Wayland 下真正应用所选显示器（2026-10-27）
+
+### 完成内容
+
+- 修复 GNOME Wayland 下选择显示器无效的问题。Mutter 会把新窗口（含全屏）
+  固定放到首个输出，忽略 primary、指针位置和全屏输出请求。
+- 选择显示器且存在 XWayland 时，Wine/Proton 改为 X11 模式
+  （`WINE_GRAPHICS_DRIVER=x11`、`PROTON_ENABLE_WAYLAND=0`、
+  `PROTON_USE_WAYLAND=0`），并在启动前通过 Mutter DisplayConfig 临时把
+  目标显示器设为 primary；Wine X11 窗口据此落到目标显示器。
+- 启动约 5 秒后自动恢复原 primary，游戏退出或启动失败时再次兜底恢复。
+- X11 会话使用 `xrandr --primary`；显示器扫描新增 primary 与坐标解析。
+- 无 XWayland 时保留 Wayland 变量回退，并在界面提示无法保证生效。
+
+### 与规格的偏差
+
+- 使用 gamescope 时仍走原有 `-O` 路径，未验证其嵌套 Wayland 的输出选择。
+- 未对原生 GUI 做自动化点击验证；真实 primary 切换/恢复与 Wine X11 放置
+  由手工测试和 ignored 测试覆盖。
+
+### 验证
+
+- `cargo fmt --all --check`、`cargo clippy --workspace --all-targets -- -D warnings`：
+  通过。
+- `cargo test --workspace`：211 passed，2 ignored。
+- 真实 Mutter primary 切换/恢复测试通过；GE-Proton + Wine notepad 在
+  HDMI-1/eDP-1 间按 primary 正确定位，启动后恢复 primary 仍保持目标屏。
+
 ## v0.3.2 — 通过 wineserver 结束 Wine/Proton 游戏（2026-10-27）
 
 ### 完成内容

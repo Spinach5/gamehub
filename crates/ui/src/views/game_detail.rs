@@ -227,34 +227,35 @@ pub fn view(app: &App) -> Element<'_, Message> {
         )
     };
 
-    let resolution_controls = if !gamescope_effective {
-        column![text(
-            "当前不会使用 gamescope：分辨率与刷新率不生效；X11 设置 __GL_SYNC_DISPLAY_DEVICE，Wayland 设置 Proton/Wine 的 Wayland 显示器变量。"
+    let resolution_controls =
+        if !gamescope_effective {
+            column![text(
+            "当前不会使用 gamescope：分辨率与刷新率不生效；选择显示器时会临时切换系统 primary。"
         )
         .size(12)]
-    } else {
-        column![
-            row![
-                text("分辨率："),
-                text_input("宽", draft.resolution_width.as_str())
-                    .on_input(|value| Message::Draft(DraftAction::ResolutionWidth(value)))
-                    .width(Length::Fixed(100.0)),
-                text("x"),
-                text_input("高", draft.resolution_height.as_str())
-                    .on_input(|value| Message::Draft(DraftAction::ResolutionHeight(value)))
-                    .width(Length::Fixed(100.0)),
+        } else {
+            column![
+                row![
+                    text("分辨率："),
+                    text_input("宽", draft.resolution_width.as_str())
+                        .on_input(|value| Message::Draft(DraftAction::ResolutionWidth(value)))
+                        .width(Length::Fixed(100.0)),
+                    text("x"),
+                    text_input("高", draft.resolution_height.as_str())
+                        .on_input(|value| Message::Draft(DraftAction::ResolutionHeight(value)))
+                        .width(Length::Fixed(100.0)),
+                ]
+                .spacing(8),
+                row![
+                    text("刷新率："),
+                    text_input("例如 144", draft.refresh_rate.as_str())
+                        .on_input(|value| Message::Draft(DraftAction::RefreshRate(value)))
+                        .width(Length::Fixed(120.0)),
+                ]
+                .spacing(8),
             ]
-            .spacing(8),
-            row![
-                text("刷新率："),
-                text_input("例如 144", draft.refresh_rate.as_str())
-                    .on_input(|value| Message::Draft(DraftAction::RefreshRate(value)))
-                    .width(Length::Fixed(120.0)),
-            ]
-            .spacing(8),
-        ]
-        .spacing(8)
-    };
+            .spacing(8)
+        };
 
     let mut display_section = column![
         row![text("后端："), backend_pick].spacing(8),
@@ -277,12 +278,12 @@ pub fn view(app: &App) -> Element<'_, Message> {
     }
 
     if app.session == application::SessionType::Wayland {
-        display_section = display_section.push(
-            text(
-                "Wayland 下选择显示器会启用 Proton 的 Wayland 驱动（PROTON_ENABLE_WAYLAND）并设置 PROTON_WAYLAND_MONITOR / WAYLANDDRV_PRIMARY_MONITOR，需要 Proton/Wine 支持 Wayland 驱动。",
-            )
-            .size(12),
-        );
+        let hint = if std::env::var_os("DISPLAY").is_some() {
+            "选择显示器时会临时把该显示器设为系统 primary，并让 Wine/Proton 以 X11 模式启动；启动后会自动恢复原 primary。"
+        } else {
+            "未检测到 XWayland（DISPLAY），显示器选择无法保证生效。"
+        };
+        display_section = display_section.push(text(hint).size(12));
     }
 
     if app.gamescope_path.is_none() {

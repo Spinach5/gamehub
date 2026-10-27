@@ -7,16 +7,27 @@ pub struct MonitorOutput {
     pub name: String,
     pub connected: bool,
     pub active: bool,
+    pub primary: bool,
+    pub position: Option<(i32, i32)>,
     pub current_mode: Option<(u32, u32, Option<u32>)>,
 }
 
-fn parse_geometry(token: &str) -> Option<(u32, u32)> {
+fn parse_size(token: &str) -> Option<(u32, u32)> {
+    let (width, rest) = token.split_once('x')?;
+    let height = rest.split(['+', '*']).next()?;
+    Some((width.parse().ok()?, height.parse().ok()?))
+}
+
+fn parse_geometry(token: &str) -> Option<(u32, u32, i32, i32)> {
     if !token.contains('+') {
         return None;
     }
     let (width, rest) = token.split_once('x')?;
-    let height = rest.split('+').next()?;
-    Some((width.parse().ok()?, height.parse().ok()?))
+    let mut parts = rest.split('+');
+    let height = parts.next()?.parse().ok()?;
+    let x = parts.next()?.parse().ok()?;
+    let y = parts.next()?.parse().ok()?;
+    Some((width.parse().ok()?, height, x, y))
 }
 
 fn parse_refresh(token: &str) -> Option<u32> {
@@ -53,19 +64,17 @@ pub fn parse_xrandr_output(text: &str) -> Vec<MonitorOutput> {
                 continue;
             }
 
-            let mut geometry = None;
-            for token in parts {
-                if let Some(mode) = parse_geometry(token) {
-                    geometry = Some(mode);
-                    break;
-                }
-            }
+            let rest: Vec<&str> = parts.collect();
+            let primary = rest.contains(&"primary");
+            let geometry = rest.iter().find_map(|token| parse_geometry(token));
 
             outputs.push(MonitorOutput {
                 name: name.to_string(),
                 connected: state == "connected",
                 active: geometry.is_some(),
-                current_mode: geometry.map(|(width, height)| (width, height, None)),
+                primary,
+                position: geometry.map(|(_, _, x, y)| (x, y)),
+                current_mode: geometry.map(|(width, height, _, _)| (width, height, None)),
             });
             current = Some(outputs.len() - 1);
             continue;
@@ -83,7 +92,7 @@ pub fn parse_xrandr_output(text: &str) -> Vec<MonitorOutput> {
         let Some(mode_token) = parts.next() else {
             continue;
         };
-        let Some((width, height)) = parse_geometry(&format!("{mode_token}+")) else {
+        let Some((width, height)) = parse_size(mode_token) else {
             continue;
         };
         let Some((current_width, current_height, refresh)) = output.current_mode else {
@@ -112,7 +121,7 @@ pub fn parse_xrandr_output(text: &str) -> Vec<MonitorOutput> {
     outputs
 }
 
-fn list_xrandr_outputs() -> Vec<MonitorOutput> {
+pub(crate) fn list_xrandr_outputs() -> Vec<MonitorOutput> {
     let output = match Command::new("xrandr").arg("--query").output() {
         Ok(output) => output,
         Err(error) => {
@@ -179,6 +188,8 @@ pub fn parse_wayland_info_outputs(text: &str) -> Vec<MonitorOutput> {
                     name: name.to_string(),
                     connected: true,
                     active: true,
+                    primary: false,
+                    position: None,
                     current_mode: None,
                 });
             }
@@ -216,6 +227,8 @@ fn list_drm_outputs() -> Vec<MonitorOutput> {
             name,
             connected: status.trim() == "connected",
             active: false,
+            primary: false,
+            position: None,
             current_mode: None,
         });
     }
@@ -254,6 +267,8 @@ HDMI-1 connected (normal left inverted right x axis y axis)
             .unwrap();
         assert!(edp.connected);
         assert!(edp.active);
+        assert!(edp.primary);
+        assert_eq!(edp.position, Some((0, 0)));
         assert_eq!(edp.current_mode, Some((1920, 1080, Some(144))));
     }
 
@@ -263,6 +278,8 @@ HDMI-1 connected (normal left inverted right x axis y axis)
         let dp = outputs.iter().find(|output| output.name == "DP-1").unwrap();
         assert!(!dp.connected);
         assert!(!dp.active);
+        assert!(!dp.primary);
+        assert_eq!(dp.position, None);
         assert_eq!(dp.current_mode, None);
 
         let hdmi = outputs
@@ -271,6 +288,7 @@ HDMI-1 connected (normal left inverted right x axis y axis)
             .unwrap();
         assert!(hdmi.connected);
         assert!(!hdmi.active);
+        assert_eq!(hdmi.position, None);
         assert_eq!(hdmi.current_mode, None);
     }
 
@@ -290,6 +308,10 @@ HDMI-1 connected 1920x1080+1920+0 (normal) 500mm x 300mm
 "#;
         let outputs = parse_xrandr_output(text);
         assert_eq!(outputs.len(), 2);
+        assert!(outputs[0].primary);
+        assert_eq!(outputs[0].position, Some((0, 0)));
+        assert!(!outputs[1].primary);
+        assert_eq!(outputs[1].position, Some((1920, 0)));
         assert_eq!(outputs[0].current_mode, Some((1920, 1080, Some(60))));
         assert_eq!(outputs[1].current_mode, Some((1920, 1080, Some(120))));
     }
