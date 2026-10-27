@@ -3,12 +3,13 @@ resolver = "3"
 members = ["crates/*"]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 rust-version = "1.85"
 
 [workspace.dependencies]
 launcher-core = { path = "crates/launcher-core" }
+application = { path = "crates/application" }
 storage = { path = "crates/storage" }
 runner-wine = { path = "crates/runner-wine" }
 prefix = { path = "crates/prefix" }

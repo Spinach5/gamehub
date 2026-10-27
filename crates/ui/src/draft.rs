@@ -234,7 +234,7 @@ pub(crate) fn env_rows_to_map(rows: &[EnvRow]) -> Result<BTreeMap<String, String
                 "WINEDLLOVERRIDES 必须通过结构化 DLL override 配置",
             ));
         }
-        launch::validate_env_key(key)
+        application::validate_env_key(key)
             .map_err(|error| DraftError::new("环境变量", error.to_string()))?;
         let previous = map.insert(key.to_string(), row.value.clone());
         if previous.is_some() {
@@ -252,7 +252,7 @@ fn dll_rows_to_overrides(rows: &[DllRow]) -> Result<Vec<DllOverride>, DraftError
         if name.is_empty() {
             continue;
         }
-        launch::validate_dll_name(&name)
+        application::validate_dll_name(&name)
             .map_err(|error| DraftError::new("DLL Override", error.to_string()))?;
         let key = name.to_ascii_lowercase();
         if !seen.insert(key) {

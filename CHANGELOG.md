@@ -2,6 +2,35 @@
 
 本文件记录每个实施阶段完成的内容、与规格的偏差以及验证结果。
 
+## v0.1.1 — 结构重构：应用服务层与模块拆分（2026-10-27）
+
+### 完成内容
+
+- 新增 `crates/application`（P0/P2）：把 `ui/tasks.rs` 的编排逻辑下沉为
+  `AppService`，统一 `AppError`；`ui` 不再直接依赖 storage/prefix/display/
+  runner-wine/launch。
+- UI 拆分（P1）：`ui/app.rs` → `app/{mod,message,update,view}.rs`；
+  `ui/widgets.rs` → `widgets/{mod,choices,confirm}.rs`。
+- storage 拆分（P3）：CRUD 按实体移到 `storage/repos/{games,runners,settings}.rs`，
+  `lib.rs` 只保留连接与 `ensure_app_dirs`。
+- 日志下沉（P6）：`init_logging` 从 `ui` 移到 `launcher-core::logging`。
+- 旧 `ui/src/tasks.rs` 的 12 个编排测试迁移为
+  `crates/application/tests/orchestration.rs`。
+
+### 与规格的偏差
+
+- `docs/specs/08/09/10` 是历史实施记录，未回写新文件布局；架构以
+  `docs/specs/00-overview.md` 为准。
+- 未执行 P4（launch 重命名）、P5（为每个 crate 建 tests/）、P8（xtask）。
+- 产品行为不变，仅调整 crate 边界与模块布局。
+
+### 验证
+
+- `cargo fmt --all --check`、`cargo clippy --workspace --all-targets -- -D warnings`：
+  通过。
+- `cargo test --workspace`：156 passed，1 ignored（application 12、storage 18、
+  ui 14）。
+
 ## P10 — 交付验收
 
 ### 完成内容

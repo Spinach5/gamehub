@@ -1,0 +1,22 @@
+[package]
+name = "application"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+launcher-core.workspace = true
+storage.workspace = true
+prefix.workspace = true
+display.workspace = true
+runner-wine.workspace = true
+launch.workspace = true
+tokio.workspace = true
+thiserror.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

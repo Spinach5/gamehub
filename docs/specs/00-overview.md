@@ -4,7 +4,7 @@
 
 **Goal:** 在 Linux（X11/Wayland）上交付一个完全离线可用的 Windows 游戏启动器：导入本地 exe、管理 Wine/Proton runner、创建 prefix、注入用户提供的 DXVK、配置显示与 gamescope、启动游戏。
 
-**Architecture:** Cargo workspace + 7 个 crate。`launcher-core` 只放纯类型、枚举映射和路径计算；`storage` 负责 SQLite；`runner-wine`、`prefix`、`display`、`launch` 各自封装一个职责；`ui` 是唯一的 Iced 二进制入口。依赖方向单向，禁止环。
+**Architecture:** Cargo workspace + 8 个 crate。`launcher-core` 只放纯类型、枚举映射、路径计算与日志初始化；`storage` 负责 SQLite；`runner-wine`、`prefix`、`display`、`launch` 各自封装一个职责；`application` 聚合这些能力，提供用例级 API 与统一错误；`ui` 是唯一的 Iced 二进制入口，只做状态机与视图。依赖方向单向，禁止环。
 
 **Tech Stack:** Rust stable / edition 2024、Iced 0.13.1、tokio 1.54、rusqlite 0.41（bundled）、rfd 0.17.2、serde/serde_json、thiserror 2、tracing、uuid v4、chrono（仅用于时间显示）。
 
@@ -66,9 +66,9 @@ gameHub/
 │       └── archive/plan-v1.md
 └── crates/
     ├── launcher-core/
-    │   └── src/{lib.rs,types.rs,paths.rs,text.rs,error.rs}
+    │   └── src/{lib.rs,types.rs,paths.rs,text.rs,logging.rs,error.rs}
     ├── storage/
-    │   └── src/{lib.rs,schema.rs,mapping.rs,error.rs}
+    │   └── src/{lib.rs,schema.rs,mapping.rs,error.rs,repos/{mod,games,runners,settings}.rs}
     ├── runner-wine/
     │   └── src/{lib.rs,detect.rs,context.rs,error.rs}
     ├── prefix/
@@ -77,32 +77,35 @@ gameHub/
     │   └── src/{lib.rs,session.rs,xrandr.rs,gamescope.rs}
     ├── launch/
     │   └── src/{lib.rs,resolve.rs,env.rs,plan.rs,spawn.rs,error.rs}
+    ├── application/
+    │   └── src/{lib.rs,error.rs,service.rs,data.rs,games.rs,runners.rs,prefixes.rs,launching.rs,delete.rs,settings.rs}
     └── ui/
         └── src/
             ├── main.rs
             ├── lib.rs
-            ├── app.rs
+            ├── app/{mod.rs,message.rs,update.rs,view.rs}
             ├── draft.rs
             ├── dialogs.rs
-            ├── tasks.rs
-            ├── widgets.rs
+            ├── widgets/{mod.rs,choices.rs,confirm.rs}
             └── views/{mod.rs,library.rs,game_detail.rs,runners.rs,settings.rs}
 ```
 
 文件职责边界：
 
-- `launcher-core`：类型、serde 契约、枚举 ↔ 字符串映射、`AppPaths` 计算、UTF-8 截断。**不依赖** tokio/rusqlite/iced，也不执行文件系统命令。
-- `storage`：SQLite 连接、迁移、行映射、CRUD、引用计数。仅它可以直接依赖 rusqlite。
+- `launcher-core`：类型、serde 契约、枚举 ↔ 字符串映射、`AppPaths` 计算、UTF-8 截断、`init_logging`。**不依赖** tokio/rusqlite/iced，也不执行文件系统命令（日志目录创建是唯一例外）。
+- `storage`：SQLite 连接、迁移、行映射、CRUD、引用计数，按 `games`/`runners`/`settings` 拆分在 `repos/`。仅它可以直接依赖 rusqlite。
 - `runner-wine`：runner 探测、Proton 目录校验、`WineContext` 环境与命令行构造、`spawn`。
 - `prefix`：prefix 路径解析、状态/arch 检测、wineboot 初始化、DXVK 复制与注册表写入、prefix 删除（调用方负责引用检查）。
 - `display`：会话检测、xrandr 解析、gamescope 查找与参数构造。无 UI、无 DB。
 - `launch`：runner 解析、启动前校验、环境合成、启动计划、spawn。
-- `ui`：Iced 状态机、视图、rfd 对话框、异步任务编排；所有 DB/文件/子进程重活都在 `spawn_blocking` 或 tokio task 中。
+- `application`：用例编排（加载、保存、探测、prefix、DXVK、删除、启动），持有 `AppService` 连接句柄，定义统一的 `AppError`。UI 不再直接依赖底层 crate。
+- `ui`：Iced 状态机、视图、rfd 对话框；只把 `AppService` 的异步结果映射成 `Message`。所有 DB/文件/子进程重活都在 `application` 的 `spawn_blocking` 或 tokio task 中。
 
 依赖方向（禁止反向）：
 
 ```
-ui ──> launch, prefix, display, runner-wine, storage, launcher-core
+ui ──> application, launcher-core
+application ──> launch, prefix, display, runner-wine, storage, launcher-core
 launch ──> prefix, display, runner-wine, storage, launcher-core
 prefix ──> runner-wine ──> launcher-core
 display ──> launcher-core

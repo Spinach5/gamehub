@@ -4,10 +4,10 @@ use crate::draft::{ArgsAction, DllAction, DraftAction, EnvAction};
 use crate::widgets::{
     arch_choice, arch_choices, path_text, runner_choice, runner_choices, section,
 };
+use application::PrefixStatus;
 use iced::widget::{button, checkbox, column, pick_list, row, scrollable, text, text_input};
 use iced::{Element, Length};
 use launcher_core::GamescopeMode;
-use prefix::PrefixStatus;
 
 pub fn view(app: &App) -> Element<'_, Message> {
     let Some(draft) = &app.draft else {
@@ -165,7 +165,11 @@ pub fn view(app: &App) -> Element<'_, Message> {
 
     let base_display = draft.display.clone();
     let gamescope_effective = app.gamescope_path.is_some()
-        && display::should_use_gamescope(&draft.display, app.session, app.gamescope_path.is_some());
+        && application::should_use_gamescope(
+            &draft.display,
+            app.session,
+            app.gamescope_path.is_some(),
+        );
 
     let backend_pick = pick_list(
         crate::widgets::backend_choices(),
@@ -202,7 +206,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
         })
     };
 
-    let monitor: iced::Element<'_, Message> = if app.session == display::SessionType::X11 {
+    let monitor: iced::Element<'_, Message> = if app.session == application::SessionType::X11 {
         let base = base_display.clone();
         pick_list(
             crate::widgets::monitor_choices(&app.x11_outputs),
