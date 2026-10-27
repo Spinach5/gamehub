@@ -56,21 +56,22 @@ impl AppService {
     ) -> Result<LaunchOutcome, AppError> {
         let game_id = request.game.id;
 
-        if self.process_group(game_id).is_some() {
+        if self.running_game(game_id).is_some() {
             return Err(AppError::GameAlreadyRunning);
         }
+
+        let prefix_plan = ::prefix::plan_for_game(
+            &request.game,
+            request.runner.clone(),
+            &request.default_prefix_root,
+            request.steam_compat_client.clone(),
+        );
 
         if request.tuning.enable_dxvk_nvapi && request.runner.kind == RunnerKind::Wine {
             let source = request
                 .dxvk_nvapi_source
                 .as_ref()
                 .ok_or(AppError::DxvkNvapiSourceMissing)?;
-            let prefix_plan = ::prefix::plan_for_game(
-                &request.game,
-                request.runner.clone(),
-                &request.default_prefix_root,
-                request.steam_compat_client.clone(),
-            );
             ::prefix::install_dxvk_nvapi(
                 &prefix_plan,
                 &::prefix::DxvkNvapiSource {
@@ -80,13 +81,16 @@ impl AppService {
             .await?;
         }
 
+        let wine_prefix = ::prefix::windows_root(&prefix_plan.path, request.runner.kind);
+        let runner = request.runner.clone();
+
         let plan_request = request.clone();
         let plan =
             tokio::task::spawn_blocking(move || ::launch::build_plan(&plan_request)).await??;
 
         let mut child = ::launch::spawn_plan_with_log(&plan, request.log_path.as_deref()).await?;
         if let Some(process_group) = child.id() {
-            if !self.register_process(game_id, process_group) {
+            if !self.register_process(game_id, process_group, runner, wine_prefix) {
                 let _ = child.kill().await;
                 return Err(AppError::GameAlreadyRunning);
             }
@@ -117,15 +121,35 @@ impl AppService {
     }
 
     pub async fn stop_game(self, game_id: Uuid) -> Result<(), AppError> {
-        let Some(process_group) = self.process_group(game_id) else {
+        let Some(running) = self.running_game(game_id) else {
             return Ok(());
         };
         self.mark_stop_requested(game_id);
-        if let Err(error) = ::launch::terminate_process_group(process_group).await {
-            self.clear_stop_requested(game_id);
-            return Err(AppError::Stop(error));
+
+        // Wine spawns game processes from wineserver, which detaches them from
+        // the launcher's process group; stop the whole prefix first.
+        let prefix_result = runner_wine::kill_wine_prefix(&running.runner, &running.wine_prefix)
+            .await
+            .map_err(AppError::Runner);
+        let group_result = ::launch::terminate_process_group(running.process_group)
+            .await
+            .map_err(AppError::Stop);
+
+        match (prefix_result, group_result) {
+            (Ok(()), Ok(())) => Ok(()),
+            (Ok(()), Err(error)) => {
+                tracing::warn!(%error, "process group termination failed after wineserver shutdown");
+                Ok(())
+            }
+            (Err(error), Ok(())) => {
+                tracing::warn!(%error, "wineserver shutdown failed after process group termination");
+                Ok(())
+            }
+            (Err(_), Err(error)) => {
+                self.clear_stop_requested(game_id);
+                Err(error)
+            }
         }
-        Ok(())
     }
 }
 

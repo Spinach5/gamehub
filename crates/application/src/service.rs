@@ -1,16 +1,24 @@
 use crate::AppError;
+use launcher_core::Runner;
 use std::collections::{HashMap, HashSet};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use storage::Db;
 use uuid::Uuid;
+
+#[derive(Clone)]
+pub(crate) struct RunningGame {
+    pub process_group: u32,
+    pub runner: Runner,
+    pub wine_prefix: PathBuf,
+}
 
 /// Cheap-to-clone handle over the SQLite connection, owned by the application
 /// layer so the UI never sees storage internals.
 #[derive(Clone)]
 pub struct AppService {
     db: Arc<Mutex<Db>>,
-    process_groups: Arc<Mutex<HashMap<Uuid, u32>>>,
+    running_games: Arc<Mutex<HashMap<Uuid, RunningGame>>>,
     stop_requested: Arc<Mutex<HashSet<Uuid>>>,
 }
 
@@ -26,7 +34,7 @@ impl AppService {
     pub fn new(db: Db) -> Self {
         Self {
             db: Arc::new(Mutex::new(db)),
-            process_groups: Arc::new(Mutex::new(HashMap::new())),
+            running_games: Arc::new(Mutex::new(HashMap::new())),
             stop_requested: Arc::new(Mutex::new(HashSet::new())),
         }
     }
@@ -35,17 +43,31 @@ impl AppService {
         Arc::clone(&self.db)
     }
 
-    pub(crate) fn register_process(&self, game_id: Uuid, process_group: u32) -> bool {
-        let mut groups = self.lock_process_groups();
-        groups.insert(game_id, process_group).is_none()
+    pub(crate) fn register_process(
+        &self,
+        game_id: Uuid,
+        process_group: u32,
+        runner: Runner,
+        wine_prefix: PathBuf,
+    ) -> bool {
+        self.lock_running_games()
+            .insert(
+                game_id,
+                RunningGame {
+                    process_group,
+                    runner,
+                    wine_prefix,
+                },
+            )
+            .is_none()
     }
 
     pub(crate) fn unregister_process(&self, game_id: Uuid) {
-        self.lock_process_groups().remove(&game_id);
+        self.lock_running_games().remove(&game_id);
     }
 
-    pub(crate) fn process_group(&self, game_id: Uuid) -> Option<u32> {
-        self.lock_process_groups().get(&game_id).copied()
+    pub(crate) fn running_game(&self, game_id: Uuid) -> Option<RunningGame> {
+        self.lock_running_games().get(&game_id).cloned()
     }
 
     pub(crate) fn mark_stop_requested(&self, game_id: Uuid) {
@@ -60,8 +82,8 @@ impl AppService {
         self.lock_stop_requested().remove(&game_id)
     }
 
-    fn lock_process_groups(&self) -> std::sync::MutexGuard<'_, HashMap<Uuid, u32>> {
-        self.process_groups
+    fn lock_running_games(&self) -> std::sync::MutexGuard<'_, HashMap<Uuid, RunningGame>> {
+        self.running_games
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
     }

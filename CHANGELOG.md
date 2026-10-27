@@ -2,6 +2,31 @@
 
 本文件记录每个实施阶段完成的内容、与规格的偏差以及验证结果。
 
+## v0.3.2 — 通过 wineserver 结束 Wine/Proton 游戏（2026-10-27）
+
+### 完成内容
+
+- 修复点击“结束”无法终止游戏的问题。Wine/Proton 的游戏进程由 `wineserver`
+  托管并脱离启动器进程组，之前只结束进程组不会命中游戏本体。
+- 启动时记录 runner 与 `WINEPREFIX`；结束时先执行对应 runner 的
+  `wineserver -k`，再对启动器进程组发送 `SIGTERM`/`SIGKILL` 兜底。
+- Proton 使用 `<prefix>/pfx`，系统 Wine 使用 prefix 本身；`wineserver` 按
+  系统 Wine 同目录、Proton 的 `files/bin`、`dist/bin`、`bin` 布局查找。
+- 两种终止机制任一成功即视为结束成功，避免重复误报。
+
+### 与规格的偏差
+
+- `wineserver -k` 会结束该 prefix 下的所有 Wine 进程；应用自身已禁止同一
+  prefix 的并发游戏。
+- 未对原生 GUI 做自动化点击验证；结束流程由集成测试覆盖。
+
+### 验证
+
+- 新增“脱离进程组的游戏进程可被结束”的集成测试。
+- `cargo fmt --all --check`、`cargo clippy --workspace --all-targets -- -D warnings`：
+  通过。
+- `cargo test --workspace`：209 passed，1 ignored。
+
 ## v0.3.1 — Wayland 下应用所选显示器（2026-10-27）
 
 ### 完成内容

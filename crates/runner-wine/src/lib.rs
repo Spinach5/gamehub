@@ -1,6 +1,7 @@
 mod context;
 mod detect;
 mod error;
+mod stop;
 
 pub use context::WineContext;
 pub use detect::{
@@ -8,6 +9,7 @@ pub use detect::{
     validate_proton_dir, verify_runner,
 };
 pub use error::RunnerError;
+pub use stop::{kill_wine_prefix, wineserver_path};
 
 #[cfg(test)]
 pub(crate) mod test_support {

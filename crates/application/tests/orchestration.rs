@@ -554,6 +554,68 @@ async fn stopping_a_running_game_terminates_it() {
     assert!(finished.is_some_and(|outcome| outcome.stopped));
 }
 
+fn process_exists(pid: u32) -> bool {
+    Path::new(&format!("/proc/{pid}")).exists()
+}
+
+async fn read_detached_pid(path: &Path) -> u32 {
+    for _ in 0..200 {
+        if let Ok(text) = fs::read_to_string(path) {
+            if let Ok(pid) = text.trim().parse() {
+                return pid;
+            }
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    panic!("{path:?} never contained a pid");
+}
+
+#[tokio::test]
+async fn stopping_kills_processes_detached_from_the_launcher_group() {
+    let _guard = EXEC_LOCK.lock().await;
+    let (dir, game, request) = launch_fixture(
+        RunnerKind::Wine,
+        "#!/bin/sh\nsetsid sleep 30 &\necho $! > detached.pid\nwait\n",
+    );
+    let pidfile = dir.path().join("detached.pid");
+    write_executable(
+        &dir.path().join("wineserver"),
+        &format!(
+            "#!/bin/sh\npid=$(cat '{}' 2>/dev/null)\nif [ -n \"$pid\" ]; then kill \"$pid\" 2>/dev/null; fi\nexit 0\n",
+            pidfile.display()
+        ),
+    );
+
+    let service = AppService::open_in_memory().unwrap();
+    service.clone().save_game(game.clone(), true).await.unwrap();
+
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    let launch = tokio::spawn(service.clone().launch_game_with_events(request, tx));
+    let started = loop {
+        match rx.recv().await {
+            Some(LaunchEvent::Started { game_id }) if game_id == game.id => break true,
+            Some(_) => {}
+            None => break false,
+        }
+    };
+    assert!(started, "launch never reported Started");
+
+    let detached_pid = read_detached_pid(&pidfile).await;
+    assert!(process_exists(detached_pid));
+
+    service.clone().stop_game(game.id).await.unwrap();
+    let outcome = launch.await.unwrap().unwrap();
+    assert!(outcome.stopped);
+
+    for _ in 0..200 {
+        if !process_exists(detached_pid) {
+            return;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    panic!("detached process {detached_pid} is still running");
+}
+
 #[tokio::test]
 async fn failed_start_emits_only_failed() {
     let (_dir, mut game, mut request) = launch_fixture(RunnerKind::Wine, "#!/bin/sh\nexit 0\n");
