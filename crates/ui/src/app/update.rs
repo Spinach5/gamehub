@@ -1,5 +1,5 @@
 use super::{App, DeleteTarget, ErrorNotice, Message, Screen, SettingsAction};
-use application::LaunchRequest;
+use application::{LaunchEvent, LaunchRequest, LaunchTuning};
 use iced::Task;
 
 impl App {
@@ -258,6 +258,21 @@ impl App {
                     SettingsAction::PrefixRoot(path) => {
                         self.settings.prefix_root = path;
                     }
+                    SettingsAction::EnableEsync(value) => {
+                        self.settings.enable_esync = value;
+                    }
+                    SettingsAction::EnableFsync(value) => {
+                        self.settings.enable_fsync = value;
+                    }
+                    SettingsAction::EnableMangoHud(value) => {
+                        self.settings.enable_mangohud = value;
+                    }
+                    SettingsAction::AutoInstallDxvkNvapi(value) => {
+                        self.settings.auto_install_dxvk_nvapi = value;
+                    }
+                    SettingsAction::DxvkNvapiSource(path) => {
+                        self.settings.dxvk_nvapi_source = path;
+                    }
                 }
                 match (affects_prefix, self.selected_game) {
                     (true, Some(id)) => {
@@ -449,20 +464,29 @@ impl App {
                     steam_compat_client: self.paths.steam_compat_client.clone(),
                     default_prefix_root: self.settings.prefix_root.clone(),
                     gamescope_path: self.gamescope_path.clone(),
+                    tuning: LaunchTuning {
+                        enable_esync: self.settings.enable_esync,
+                        enable_fsync: self.settings.enable_fsync,
+                        enable_mangohud: self.settings.enable_mangohud,
+                        mangohud_path: self.mangohud_path.clone(),
+                        enable_dxvk_nvapi: self.settings.auto_install_dxvk_nvapi,
+                    },
+                    log_path: Some(self.paths.game_log_path(game_id)),
+                    dxvk_nvapi_source: self.settings.dxvk_nvapi_source.clone(),
                 };
 
                 self.running.insert(game_id, prefix_plan.path);
-                Task::perform(service.launch_game(request), move |result| {
-                    Message::LaunchFinished {
-                        game_id,
-                        result: result.map_err(|error| error.to_string()),
-                    }
-                })
+                self.starting.insert(game_id);
+                launch_task(service, request)
             }
-            Message::LaunchFinished { game_id, result } => {
-                self.running.remove(&game_id);
-                match result {
-                    Ok(outcome) => {
+            Message::LaunchEvent(event) => {
+                match event {
+                    LaunchEvent::Started { game_id } => {
+                        self.starting.remove(&game_id);
+                    }
+                    LaunchEvent::Finished { game_id, outcome } => {
+                        self.starting.remove(&game_id);
+                        self.running.remove(&game_id);
                         let timestamp = chrono::Utc::now().timestamp();
                         if let Some(game) = self.games.iter_mut().find(|game| game.id == game_id) {
                             game.last_played_at = Some(timestamp);
@@ -479,12 +503,52 @@ impl App {
                             )));
                         }
                     }
-                    Err(error) => {
+                    LaunchEvent::Failed { game_id, error } => {
+                        self.starting.remove(&game_id);
+                        self.running.remove(&game_id);
                         self.error = Some(ErrorNotice::new("启动失败").with_detail(error));
+                    }
+                }
+                Task::none()
+            }
+            Message::OpenLogs(game_id) => {
+                self.logs_game = Some(game_id);
+                self.logs_content.clear();
+                self.screen = Screen::Logs;
+                self.load_logs(game_id)
+            }
+            Message::RefreshLogs => match self.logs_game {
+                Some(game_id) => self.load_logs(game_id),
+                None => Task::none(),
+            },
+            Message::LogsLoaded { game_id, result } => {
+                if self.logs_game == Some(game_id) {
+                    match result {
+                        Ok(content) => self.logs_content = content,
+                        Err(error) => {
+                            self.error = Some(ErrorNotice::new("读取日志失败").with_detail(error));
+                        }
                     }
                 }
                 Task::none()
             }
         }
     }
+}
+
+fn launch_task(service: application::AppService, request: LaunchRequest) -> Task<Message> {
+    Task::stream(iced::stream::channel(64, move |mut output| async move {
+        use iced::futures::SinkExt;
+
+        let (events, mut receiver) = tokio::sync::mpsc::unbounded_channel();
+        tokio::spawn(async move {
+            let _ = service.launch_game_with_events(request, events).await;
+        });
+
+        while let Some(event) = receiver.recv().await {
+            if output.send(Message::LaunchEvent(event)).await.is_err() {
+                break;
+            }
+        }
+    }))
 }

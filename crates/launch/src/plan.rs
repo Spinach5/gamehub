@@ -7,6 +7,15 @@ use runner_wine::{WineContext, verify_runner};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+#[derive(Debug, Clone, Default)]
+pub struct LaunchTuning {
+    pub enable_esync: bool,
+    pub enable_fsync: bool,
+    pub enable_mangohud: bool,
+    pub mangohud_path: Option<PathBuf>,
+    pub enable_dxvk_nvapi: bool,
+}
+
 #[derive(Debug, Clone)]
 pub struct LaunchRequest {
     pub game: Game,
@@ -17,6 +26,9 @@ pub struct LaunchRequest {
     pub steam_compat_client: PathBuf,
     pub default_prefix_root: PathBuf,
     pub gamescope_path: Option<PathBuf>,
+    pub tuning: LaunchTuning,
+    pub log_path: Option<PathBuf>,
+    pub dxvk_nvapi_source: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -68,6 +80,10 @@ pub fn validate(request: &LaunchRequest) -> Result<(), LaunchError> {
         return Err(LaunchError::GamescopeUnavailable);
     }
 
+    if request.tuning.enable_mangohud && request.tuning.mangohud_path.is_none() {
+        return Err(LaunchError::MangohudUnavailable);
+    }
+
     if request.global_env.contains_key("WINEDLLOVERRIDES")
         || request.game.env_overrides.contains_key("WINEDLLOVERRIDES")
     {
@@ -113,12 +129,29 @@ pub fn build_plan(request: &LaunchRequest) -> Result<LaunchPlan, LaunchError> {
             .gamescope_path
             .clone()
             .ok_or(LaunchError::GamescopeUnavailable)?;
-        let mut gamescope_args =
-            build_gamescope_args(&request.game.display, request.session, gamescope_available);
+        let mut gamescope_args = build_gamescope_args(
+            &request.game.display,
+            request.session,
+            gamescope_available,
+            request.tuning.enable_mangohud,
+        );
         gamescope_args.push(program.to_string_lossy().into_owned());
         gamescope_args.extend(args);
         program = gamescope;
         args = gamescope_args;
+    } else if request.tuning.enable_mangohud {
+        let mangohud = request
+            .tuning
+            .mangohud_path
+            .clone()
+            .ok_or(LaunchError::MangohudUnavailable)?;
+        let mut mangohud_args = vec![
+            "--dlsym".to_string(),
+            program.to_string_lossy().into_owned(),
+        ];
+        mangohud_args.extend(args);
+        program = mangohud;
+        args = mangohud_args;
     }
 
     let env = build_env(request)?;
@@ -198,6 +231,9 @@ mod tests {
             steam_compat_client: dir.path().join("steam-client"),
             default_prefix_root: dir.path().join("prefixes"),
             gamescope_path: None,
+            tuning: crate::LaunchTuning::default(),
+            log_path: None,
+            dxvk_nvapi_source: None,
         }
     }
 
@@ -377,5 +413,79 @@ mod tests {
         request.game.display.monitor = Some("eDP-1".into());
         let plan = build_plan(&request).unwrap();
         assert_eq!(plan.env["__GL_SYNC_DISPLAY_DEVICE"], "eDP-1");
+    }
+
+    #[test]
+    fn mangohud_wraps_command_when_not_using_gamescope() {
+        let dir = tempdir().unwrap();
+        let mut request = request(&dir);
+        let mangohud = dir.path().join("mangohud");
+        write_executable(&mangohud, "#!/bin/sh\nexit 0\n");
+        request.tuning = crate::LaunchTuning {
+            enable_mangohud: true,
+            mangohud_path: Some(mangohud.clone()),
+            ..crate::LaunchTuning::default()
+        };
+
+        let plan = build_plan(&request).unwrap();
+        assert_eq!(plan.program, mangohud);
+        assert_eq!(plan.args[0], "--dlsym");
+        assert_eq!(
+            plan.args[1],
+            request.runner.binary_path.to_string_lossy().into_owned()
+        );
+        assert_eq!(
+            plan.args[2],
+            request.game.executable_path.to_string_lossy().into_owned()
+        );
+    }
+
+    #[test]
+    fn mangohud_with_gamescope_uses_mangoapp_instead_of_wrapper() {
+        let dir = tempdir().unwrap();
+        let mut request = request(&dir);
+        let gamescope = dir.path().join("gamescope");
+        write_executable(&gamescope, "#!/bin/sh\nexit 0\n");
+        let mangohud = dir.path().join("mangohud");
+        write_executable(&mangohud, "#!/bin/sh\nexit 0\n");
+        request.gamescope_path = Some(gamescope.clone());
+        request.session = SessionType::Wayland;
+        request.game.display = DisplayConfig {
+            gamescope: GamescopeMode::Forced,
+            ..DisplayConfig::default()
+        };
+        request.tuning = crate::LaunchTuning {
+            enable_mangohud: true,
+            mangohud_path: Some(mangohud),
+            ..crate::LaunchTuning::default()
+        };
+
+        let plan = build_plan(&request).unwrap();
+        assert_eq!(plan.program, gamescope);
+        let separator = plan.args.iter().position(|arg| arg == "--").unwrap();
+        assert_eq!(plan.args[separator - 1], "--mangoapp");
+        assert_eq!(
+            plan.args[separator + 1],
+            request.runner.binary_path.to_string_lossy().into_owned()
+        );
+    }
+
+    #[test]
+    fn mangohud_enabled_without_binary_is_rejected() {
+        let dir = tempdir().unwrap();
+        let mut request = request(&dir);
+        request.tuning = crate::LaunchTuning {
+            enable_mangohud: true,
+            mangohud_path: None,
+            ..crate::LaunchTuning::default()
+        };
+        assert!(matches!(
+            validate(&request),
+            Err(LaunchError::MangohudUnavailable)
+        ));
+        assert!(matches!(
+            build_plan(&request),
+            Err(LaunchError::MangohudUnavailable)
+        ));
     }
 }

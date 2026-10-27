@@ -12,6 +12,7 @@ pub struct LoadedData {
     pub session: SessionType,
     pub x11_outputs: Vec<X11Output>,
     pub gamescope_path: Option<PathBuf>,
+    pub mangohud_path: Option<PathBuf>,
 }
 
 impl AppService {
@@ -26,6 +27,7 @@ impl AppService {
                 session: display::detect_session(),
                 x11_outputs: display::list_x11_outputs(),
                 gamescope_path: display::gamescope_path(),
+                mangohud_path: display::mangohud_path(),
             })
         })
         .await?

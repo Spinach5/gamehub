@@ -20,6 +20,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
         .into();
     };
 
+    let launch_state = app.launch_state_label(draft.id);
     let header = row![
         button("返回").on_press(Message::Navigate(Screen::Library)),
         text(if draft.is_new {
@@ -28,20 +29,15 @@ pub fn view(app: &App) -> Element<'_, Message> {
             "游戏详情"
         })
         .size(24),
-        text(if app.running.contains_key(&draft.id) {
-            "运行中"
-        } else {
-            ""
-        })
-        .size(12),
+        text(launch_state.unwrap_or_default()).size(12),
         iced::widget::horizontal_space(),
         button("保存").on_press_maybe((!app.pending.saving).then_some(Message::SaveDraft)),
         button("启动").on_press_maybe(
-            (!draft.is_new && !app.running.contains_key(&draft.id) && !app.pending.deleting)
+            (!draft.is_new && launch_state.is_none() && !app.pending.deleting)
                 .then_some(Message::Launch(draft.id))
         ),
         button("删除游戏").on_press_maybe(
-            (!draft.is_new && !app.running.contains_key(&draft.id) && !app.pending.deleting)
+            (!draft.is_new && launch_state.is_none() && !app.pending.deleting)
                 .then_some(Message::ConfirmDelete(DeleteTarget::Game(draft.id)))
         ),
     ]

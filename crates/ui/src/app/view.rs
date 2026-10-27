@@ -12,6 +12,7 @@ impl App {
             Screen::GameDetail => crate::views::game_detail::view(self),
             Screen::RunnerManager => crate::views::runners::view(self),
             Screen::Settings => crate::views::settings::view(self),
+            Screen::Logs => crate::views::logs::view(self),
         };
 
         let mut content = match &self.error {

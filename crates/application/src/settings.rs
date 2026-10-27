@@ -5,6 +5,11 @@ use uuid::Uuid;
 pub const SETTING_GLOBAL_ENV: &str = "global_env";
 pub const SETTING_DEFAULT_RUNNER_ID: &str = "default_runner_id";
 pub const SETTING_PREFIX_ROOT: &str = "prefix_root";
+pub const SETTING_ENABLE_ESYNC: &str = "enable_esync";
+pub const SETTING_ENABLE_FSYNC: &str = "enable_fsync";
+pub const SETTING_ENABLE_MANGOHUD: &str = "enable_mangohud";
+pub const SETTING_AUTO_INSTALL_DXVK_NVAPI: &str = "auto_install_dxvk_nvapi";
+pub const SETTING_DXVK_NVAPI_SOURCE: &str = "dxvk_nvapi_source";
 
 impl AppService {
     pub async fn save_default_runner(self, id: Option<Uuid>) -> Result<(), AppError> {

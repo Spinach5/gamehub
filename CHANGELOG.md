@@ -2,6 +2,35 @@
 
 本文件记录每个实施阶段完成的内容、与规格的偏差以及验证结果。
 
+## v0.2.0 — 游戏卡片操作、启动日志与兼容层设置（2026-10-27）
+
+### 完成内容
+
+- Library 卡片右侧新增启动/设置/日志按钮；启动后先显示“启动中”，spawn
+  成功后显示“游玩”，退出后恢复。设置进入游戏详情，日志进入该游戏独立日志页。
+- 日志页读取最近一次启动的日志尾部 1000 行，页面打开时每秒刷新；启动时
+  轮转旧日志并写入时间戳与完整命令行。
+- 设置页新增兼容层增强区：DXVK-NVAPI 自动安装与本地源目录、Esync、Fsync、
+  MangoHud 开关；Esync/Fsync 默认开启，NVAPI 源为空时启动给出明确错误。
+- Wine 通过 `WINEESYNC`/`WINEFSYNC` 与 prefix 内 DLL/`DllOverrides` 注入
+  NVAPI；Proton 仅使用环境变量。MangoHud 优先使用 gamescope `--mangoapp`，
+  否则以 `mangohud --dlsym` 包裹启动命令，未安装时拒绝启动。
+- 启动编排改为 `LaunchEvent`（Started/Finished/Failed）事件流，UI 不再轮询
+  进程状态。
+
+### 与规格的偏差
+
+- 本机无 mangohud、gamescope 与真实 DXVK-NVAPI 资源，相关启动路径由伪造
+  可执行文件与单元测试覆盖。
+- UI 已完成 XWayland 冒烟启动，但当前环境无法目视核对像素级布局。
+
+### 验证
+
+- `cargo fmt --all --check`、`cargo clippy --workspace --all-targets -- -D warnings`：
+  通过。
+- `cargo test --workspace`：198 passed，1 ignored。
+- 隔离 `XDG_DATA_HOME` 下以 XWayland 启动 `gamehub`，窗口创建成功且无 panic。
+
 ## v0.1.1 — 结构重构：应用服务层与模块拆分（2026-10-27）
 
 ### 完成内容

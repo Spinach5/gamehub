@@ -1,6 +1,7 @@
 mod dxvk;
 mod error;
 mod initialize;
+mod nvapi;
 mod status;
 
 #[cfg(test)]
@@ -10,6 +11,7 @@ pub use dxvk::{
     DxvkFile, DxvkSource, DxvkTarget, dxvk_registry_entries, install_dxvk, validate_dxvk_source,
 };
 pub use error::PrefixError;
+pub use nvapi::{DxvkNvapiSource, install_dxvk_nvapi};
 pub use status::{
     PrefixPlan, PrefixStatus, default_prefix_path, detect_arch, plan_for_game, resolve_prefix_path,
     status, windows_root,

@@ -12,8 +12,9 @@ use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
 pub use application::{
-    AppError as ServiceError, DeleteTarget, LaunchOutcome, SETTING_DEFAULT_RUNNER_ID,
-    SETTING_GLOBAL_ENV, SETTING_PREFIX_ROOT,
+    AppError as ServiceError, DeleteTarget, LaunchOutcome, SETTING_AUTO_INSTALL_DXVK_NVAPI,
+    SETTING_DEFAULT_RUNNER_ID, SETTING_DXVK_NVAPI_SOURCE, SETTING_ENABLE_ESYNC,
+    SETTING_ENABLE_FSYNC, SETTING_ENABLE_MANGOHUD, SETTING_GLOBAL_ENV, SETTING_PREFIX_ROOT,
 };
 pub use message::{Message, SettingsAction};
 
@@ -23,6 +24,7 @@ pub enum Screen {
     GameDetail,
     RunnerManager,
     Settings,
+    Logs,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -50,6 +52,20 @@ pub struct SettingsState {
     pub global_env_rows: Vec<EnvRow>,
     pub default_runner_id: Option<Uuid>,
     pub prefix_root: PathBuf,
+    pub enable_esync: bool,
+    pub enable_fsync: bool,
+    pub enable_mangohud: bool,
+    pub auto_install_dxvk_nvapi: bool,
+    pub dxvk_nvapi_source: Option<PathBuf>,
+}
+
+fn parse_bool(map: &BTreeMap<String, String>, key: &str, default: bool) -> Result<bool, String> {
+    match map.get(key).map(String::as_str) {
+        None => Ok(default),
+        Some("true" | "1") => Ok(true),
+        Some("false" | "0") => Ok(false),
+        Some(_) => Err(format!("{key} 必须是 true/false 或 1/0")),
+    }
 }
 
 impl SettingsState {
@@ -58,6 +74,11 @@ impl SettingsState {
             global_env_rows: Vec::new(),
             default_runner_id: None,
             prefix_root: default_prefix_root.to_path_buf(),
+            enable_esync: true,
+            enable_fsync: true,
+            enable_mangohud: false,
+            auto_install_dxvk_nvapi: false,
+            dxvk_nvapi_source: None,
         }
     }
 
@@ -105,6 +126,14 @@ impl SettingsState {
             global_env_rows,
             default_runner_id,
             prefix_root,
+            enable_esync: parse_bool(map, SETTING_ENABLE_ESYNC, true)?,
+            enable_fsync: parse_bool(map, SETTING_ENABLE_FSYNC, true)?,
+            enable_mangohud: parse_bool(map, SETTING_ENABLE_MANGOHUD, false)?,
+            auto_install_dxvk_nvapi: parse_bool(map, SETTING_AUTO_INSTALL_DXVK_NVAPI, false)?,
+            dxvk_nvapi_source: map
+                .get(SETTING_DXVK_NVAPI_SOURCE)
+                .filter(|value| !value.is_empty())
+                .map(PathBuf::from),
         })
     }
 
@@ -128,6 +157,33 @@ impl SettingsState {
         map.insert(
             SETTING_DEFAULT_RUNNER_ID.to_string(),
             self.default_runner_id.map(|id| id.to_string()),
+        );
+        map.insert(
+            SETTING_ENABLE_ESYNC.to_string(),
+            Some(self.enable_esync.to_string()),
+        );
+        map.insert(
+            SETTING_ENABLE_FSYNC.to_string(),
+            Some(self.enable_fsync.to_string()),
+        );
+        map.insert(
+            SETTING_ENABLE_MANGOHUD.to_string(),
+            Some(self.enable_mangohud.to_string()),
+        );
+        map.insert(
+            SETTING_AUTO_INSTALL_DXVK_NVAPI.to_string(),
+            Some(self.auto_install_dxvk_nvapi.to_string()),
+        );
+        map.insert(
+            SETTING_DXVK_NVAPI_SOURCE.to_string(),
+            self.dxvk_nvapi_source
+                .as_ref()
+                .map(|path| {
+                    path.to_str()
+                        .map(str::to_string)
+                        .ok_or_else(|| "DXVK-NVAPI 目录不是 UTF-8 路径".to_string())
+                })
+                .transpose()?,
         );
         Ok(map)
     }
@@ -159,9 +215,13 @@ pub struct App {
     pub session: SessionType,
     pub x11_outputs: Vec<X11Output>,
     pub gamescope_path: Option<PathBuf>,
+    pub mangohud_path: Option<PathBuf>,
     pub pending: PendingState,
     pub running: HashMap<Uuid, PathBuf>, // game id -> prefix path
+    pub starting: HashSet<Uuid>,
     pub dxvk_dir: Option<PathBuf>,
+    pub logs_game: Option<Uuid>,
+    pub logs_content: String,
     pub confirming: Option<DeleteTarget>,
     pub error: Option<ErrorNotice>,
 }
@@ -186,12 +246,16 @@ impl App {
             session: SessionType::Unknown,
             x11_outputs: Vec::new(),
             gamescope_path: None,
+            mangohud_path: None,
             pending: PendingState {
                 loading: true,
                 ..PendingState::default()
             },
             running: HashMap::new(),
+            starting: HashSet::new(),
             dxvk_dir: None,
+            logs_game: None,
+            logs_content: String::new(),
             confirming: None,
             error: None,
         };
@@ -224,6 +288,7 @@ impl App {
         self.session = data.session;
         self.x11_outputs = data.x11_outputs;
         self.gamescope_path = data.gamescope_path;
+        self.mangohud_path = data.mangohud_path;
 
         match SettingsState::from_map(&data.settings_map, &self.paths.default_prefix_root) {
             Ok(settings) => self.settings = settings,
@@ -341,6 +406,11 @@ impl App {
             DialogIntent::PickDxvkDir => {
                 self.dxvk_dir = path;
             }
+            DialogIntent::PickDxvkNvapiDir => {
+                if let Some(path) = path {
+                    self.settings.dxvk_nvapi_source = Some(path);
+                }
+            }
             DialogIntent::PickPrefixRoot => {
                 if let Some(path) = path {
                     self.settings.prefix_root = path;
@@ -405,5 +475,167 @@ impl App {
 
     fn sort_games(&mut self) {
         self.games.sort_by_key(|game| game.name.to_lowercase());
+    }
+
+    pub fn launch_state_label(&self, game_id: Uuid) -> Option<&'static str> {
+        if self.starting.contains(&game_id) {
+            Some("启动中")
+        } else if self.running.contains_key(&game_id) {
+            Some("游玩")
+        } else {
+            None
+        }
+    }
+
+    fn load_logs(&self, game_id: Uuid) -> iced::Task<Message> {
+        iced::Task::perform(
+            read_log_tail(self.paths.game_log_path(game_id)),
+            move |result| Message::LogsLoaded { game_id, result },
+        )
+    }
+
+    pub fn subscription(&self) -> iced::Subscription<Message> {
+        if self.screen == Screen::Logs {
+            iced::time::every(std::time::Duration::from_secs(1)).map(|_| Message::RefreshLogs)
+        } else {
+            iced::Subscription::none()
+        }
+    }
+}
+
+async fn read_log_tail(path: PathBuf) -> Result<String, String> {
+    match tokio::fs::read_to_string(&path).await {
+        Ok(text) => Ok(tail_lines(&text, 1000)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(String::new()),
+        Err(error) => Err(error.to_string()),
+    }
+}
+
+fn tail_lines(text: &str, max_lines: usize) -> String {
+    let lines: Vec<&str> = text.lines().collect();
+    let start = lines.len().saturating_sub(max_lines);
+    let mut tail = lines[start..].join("\n");
+    if !tail.is_empty() && text.ends_with('\n') {
+        tail.push('\n');
+    }
+    tail
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use application::LaunchEvent;
+
+    fn settings_from(pairs: &[(&str, &str)]) -> Result<SettingsState, String> {
+        let map = pairs
+            .iter()
+            .map(|(key, value)| (key.to_string(), value.to_string()))
+            .collect();
+        SettingsState::from_map(&map, Path::new("/tmp/prefixes"))
+    }
+
+    fn app() -> App {
+        let paths = AppPaths::for_root(PathBuf::from("/tmp/gamehub-ui-test"));
+        let (app, _) = App::new(paths, Err(ServiceError::DatabaseLocked));
+        app
+    }
+
+    #[test]
+    fn settings_default_to_esync_and_fsync_enabled() {
+        let settings = settings_from(&[]).unwrap();
+        assert!(settings.enable_esync);
+        assert!(settings.enable_fsync);
+        assert!(!settings.enable_mangohud);
+        assert!(!settings.auto_install_dxvk_nvapi);
+        assert_eq!(settings.dxvk_nvapi_source, None);
+    }
+
+    #[test]
+    fn settings_parse_boolean_spellings() {
+        let settings = settings_from(&[
+            (SETTING_ENABLE_ESYNC, "0"),
+            (SETTING_ENABLE_FSYNC, "false"),
+            (SETTING_ENABLE_MANGOHUD, "true"),
+            (SETTING_AUTO_INSTALL_DXVK_NVAPI, "1"),
+        ])
+        .unwrap();
+        assert!(!settings.enable_esync);
+        assert!(!settings.enable_fsync);
+        assert!(settings.enable_mangohud);
+        assert!(settings.auto_install_dxvk_nvapi);
+    }
+
+    #[test]
+    fn invalid_boolean_is_rejected() {
+        assert!(settings_from(&[(SETTING_ENABLE_ESYNC, "yes")]).is_err());
+    }
+
+    #[test]
+    fn settings_round_trip_preserves_tuning_fields() {
+        let mut settings = SettingsState::default_for(Path::new("/tmp/prefixes"));
+        settings.enable_esync = false;
+        settings.enable_mangohud = true;
+        settings.auto_install_dxvk_nvapi = true;
+        settings.dxvk_nvapi_source = Some(PathBuf::from("/opt/nvapi"));
+
+        let stored: BTreeMap<String, String> = settings
+            .to_map()
+            .unwrap()
+            .into_iter()
+            .filter_map(|(key, value)| value.map(|value| (key, value)))
+            .collect();
+        let parsed = SettingsState::from_map(&stored, Path::new("/tmp/prefixes")).unwrap();
+        assert_eq!(parsed, settings);
+    }
+
+    #[test]
+    fn launch_state_moves_from_starting_to_playing() {
+        let mut app = app();
+        let id = Uuid::new_v4();
+        app.running.insert(id, PathBuf::from("/tmp/prefix"));
+        app.starting.insert(id);
+        assert_eq!(app.launch_state_label(id), Some("启动中"));
+
+        let _ = app.update(Message::LaunchEvent(LaunchEvent::Started { game_id: id }));
+        assert_eq!(app.launch_state_label(id), Some("游玩"));
+
+        let _ = app.update(Message::LaunchEvent(LaunchEvent::Finished {
+            game_id: id,
+            outcome: LaunchOutcome {
+                exit_code: Some(0),
+                success: true,
+            },
+        }));
+        assert_eq!(app.launch_state_label(id), None);
+        assert!(!app.running.contains_key(&id));
+        assert!(!app.starting.contains(&id));
+    }
+
+    #[test]
+    fn failed_launch_clears_running_state_and_reports_error() {
+        let mut app = app();
+        let id = Uuid::new_v4();
+        app.running.insert(id, PathBuf::from("/tmp/prefix"));
+        app.starting.insert(id);
+
+        let _ = app.update(Message::LaunchEvent(LaunchEvent::Failed {
+            game_id: id,
+            error: "boom".into(),
+        }));
+
+        assert!(!app.starting.contains(&id));
+        assert!(!app.running.contains_key(&id));
+        assert_eq!(
+            app.error.as_ref().and_then(|error| error.detail.as_deref()),
+            Some("boom")
+        );
+    }
+
+    #[test]
+    fn tail_lines_keeps_only_the_requested_suffix() {
+        assert_eq!(tail_lines("a\nb\nc\n", 2), "b\nc\n");
+        assert_eq!(tail_lines("a\nb", 5), "a\nb");
+        assert_eq!(tail_lines("", 10), "");
+        assert_eq!(tail_lines("a\nb\nc", 0), "");
     }
 }

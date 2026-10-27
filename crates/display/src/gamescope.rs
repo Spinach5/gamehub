@@ -34,6 +34,20 @@ pub fn gamescope_path() -> Option<PathBuf> {
         .clone()
 }
 
+fn mangohud_path_from(path_env: Option<&OsStr>) -> Option<PathBuf> {
+    find_in_path("mangohud", path_env)
+}
+
+pub fn mangohud_path() -> Option<PathBuf> {
+    static MANGOHUD: OnceLock<Option<PathBuf>> = OnceLock::new();
+    MANGOHUD
+        .get_or_init(|| {
+            let path_env = std::env::var_os("PATH");
+            mangohud_path_from(path_env.as_deref())
+        })
+        .clone()
+}
+
 pub fn should_use_gamescope(config: &DisplayConfig, session: SessionType, available: bool) -> bool {
     match config.gamescope {
         GamescopeMode::Off => false,
@@ -46,6 +60,7 @@ pub fn build_gamescope_args(
     config: &DisplayConfig,
     session: SessionType,
     available: bool,
+    mangoapp: bool,
 ) -> Vec<String> {
     if !should_use_gamescope(config, session, available) {
         return Vec::new();
@@ -81,6 +96,9 @@ pub fn build_gamescope_args(
             args.push("x11".into());
         }
         SessionType::Unknown => {}
+    }
+    if mangoapp {
+        args.push("--mangoapp".into());
     }
     args.push("--".into());
     args
@@ -153,7 +171,7 @@ mod tests {
     fn off_never_uses_gamescope() {
         let config = config(GamescopeMode::Off);
         assert!(!should_use_gamescope(&config, SessionType::Wayland, true));
-        assert!(build_gamescope_args(&config, SessionType::Wayland, true).is_empty());
+        assert!(build_gamescope_args(&config, SessionType::Wayland, true, false).is_empty());
     }
 
     #[test]
@@ -170,7 +188,7 @@ mod tests {
         let config = config(GamescopeMode::Forced);
         assert!(should_use_gamescope(&config, SessionType::X11, false));
         assert_eq!(
-            build_gamescope_args(&config, SessionType::X11, false),
+            build_gamescope_args(&config, SessionType::X11, false, false),
             vec![
                 "-W",
                 "2560",
@@ -190,7 +208,7 @@ mod tests {
     fn wayland_arguments_are_exact_and_include_output() {
         let config = config(GamescopeMode::Auto);
         assert_eq!(
-            build_gamescope_args(&config, SessionType::Wayland, true),
+            build_gamescope_args(&config, SessionType::Wayland, true, false),
             vec![
                 "-W",
                 "2560",
@@ -219,7 +237,7 @@ mod tests {
             gamescope: GamescopeMode::Auto,
         };
         assert_eq!(
-            build_gamescope_args(&config, SessionType::Wayland, true),
+            build_gamescope_args(&config, SessionType::Wayland, true, false),
             vec!["--backend", "wayland", "--"]
         );
     }
@@ -227,7 +245,7 @@ mod tests {
     #[test]
     fn x11_does_not_pass_output_flag() {
         let config = config(GamescopeMode::Forced);
-        let args = build_gamescope_args(&config, SessionType::X11, true);
+        let args = build_gamescope_args(&config, SessionType::X11, true, false);
         assert!(!args.contains(&"-O".to_string()));
         assert_eq!(args.last().map(String::as_str), Some("--"));
     }
@@ -236,8 +254,36 @@ mod tests {
     fn unknown_session_omits_backend_flag() {
         let config = config(GamescopeMode::Forced);
         assert_eq!(
-            build_gamescope_args(&config, SessionType::Unknown, false),
+            build_gamescope_args(&config, SessionType::Unknown, false, false),
             vec!["-W", "2560", "-H", "1440", "-r", "144", "-f", "--"]
         );
+    }
+
+    #[test]
+    fn mangoapp_flag_is_inserted_before_separator() {
+        let config = config(GamescopeMode::Auto);
+        let args = build_gamescope_args(&config, SessionType::Wayland, true, true);
+        assert_eq!(args[args.len() - 2], "--mangoapp");
+        assert_eq!(args.last().map(String::as_str), Some("--"));
+    }
+
+    #[test]
+    fn mangoapp_is_not_present_when_disabled() {
+        let config = config(GamescopeMode::Auto);
+        let args = build_gamescope_args(&config, SessionType::Wayland, true, false);
+        assert!(!args.contains(&"--mangoapp".to_string()));
+    }
+
+    #[test]
+    fn mango_hud_path_is_resolved_from_injected_path() {
+        let dir = tempdir().unwrap();
+        let mangohud = dir.path().join("mangohud");
+        write_executable(&mangohud);
+        let path_env = std::env::join_paths([dir.path()]).unwrap();
+        assert_eq!(
+            mangohud_path_from(Some(path_env.as_os_str())),
+            Some(mangohud)
+        );
+        assert_eq!(mangohud_path_from(None), None);
     }
 }

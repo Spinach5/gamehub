@@ -23,6 +23,8 @@ pub enum AppError {
     DefaultRunnerInUse,
     #[error("仍有 {0} 个游戏使用该 Runner")]
     RunnerInUse(u64),
+    #[error("已启用 DXVK-NVAPI 自动安装，但未选择目录")]
+    DxvkNvapiSourceMissing,
     #[error("等待游戏进程失败: {0}")]
     ProcessWait(#[source] std::io::Error),
     #[error(transparent)]

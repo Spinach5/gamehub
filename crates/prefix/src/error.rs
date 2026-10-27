@@ -25,6 +25,8 @@ pub enum PrefixError {
     PrefixNotInitialized(PathBuf),
     #[error("dxvk source is missing a required file: {path:?}")]
     DxvkSourceInvalid { path: PathBuf },
+    #[error("dxvk-nvapi source is missing a required file: {path:?}")]
+    DxvkNvapiSourceInvalid { path: PathBuf },
     #[error("reg add failed for {dll}: code {code:?}: {stderr}")]
     RegAddFailed {
         dll: String,

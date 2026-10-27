@@ -26,6 +26,8 @@ pub enum LaunchError {
     },
     #[error("gamescope is forced but not available")]
     GamescopeUnavailable,
+    #[error("MangoHud is enabled but mangohud was not found")]
+    MangohudUnavailable,
     #[error("WINEDLLOVERRIDES must be configured through structured dll_overrides")]
     DllOverrideConflict,
     #[error("invalid DLL name: {0:?}")]

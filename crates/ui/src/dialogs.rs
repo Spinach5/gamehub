@@ -8,6 +8,7 @@ pub enum DialogIntent {
     PickProtonDir,
     PickPrefixDir,
     PickDxvkDir,
+    PickDxvkNvapiDir,
     PickPrefixRoot,
 }
 
@@ -19,6 +20,7 @@ fn dialog_impl(intent: DialogIntent) -> Option<std::path::PathBuf> {
         | DialogIntent::PickProtonDir
         | DialogIntent::PickPrefixDir
         | DialogIntent::PickDxvkDir
+        | DialogIntent::PickDxvkNvapiDir
         | DialogIntent::PickPrefixRoot => dialog.pick_folder(),
     }
 }

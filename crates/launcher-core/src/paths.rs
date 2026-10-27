@@ -39,6 +39,10 @@ impl AppPaths {
         let home = std::env::var_os("HOME").map(PathBuf::from);
         Self::from_values(xdg.as_deref(), home.as_deref())
     }
+
+    pub fn game_log_path(&self, game_id: uuid::Uuid) -> PathBuf {
+        self.logs_dir.join("games").join(format!("{game_id}.log"))
+    }
 }
 
 #[cfg(test)]
@@ -83,6 +87,15 @@ mod tests {
         assert_eq!(
             paths.steam_compat_client,
             PathBuf::from("/data/gamehub/steam-compat-client")
+        );
+    }
+
+    #[test]
+    fn game_log_path_is_under_logs_games() {
+        let paths = AppPaths::for_root(PathBuf::from("/data/gamehub"));
+        assert_eq!(
+            paths.game_log_path(uuid::Uuid::nil()),
+            PathBuf::from("/data/gamehub/logs/games/00000000-0000-0000-0000-000000000000.log")
         );
     }
 }

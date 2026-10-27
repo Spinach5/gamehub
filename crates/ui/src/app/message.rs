@@ -1,6 +1,6 @@
-use super::{DeleteTarget, LaunchOutcome, PrefixStatus, Screen};
+use super::{DeleteTarget, PrefixStatus, Screen};
 use crate::draft::DraftAction;
-use application::{Game, LoadedData, Runner};
+use application::{Game, LaunchEvent, LoadedData, Runner};
 use std::path::PathBuf;
 
 #[derive(Debug, Clone)]
@@ -55,9 +55,12 @@ pub enum Message {
         result: Result<(), String>,
     },
     Launch(uuid::Uuid),
-    LaunchFinished {
+    LaunchEvent(LaunchEvent),
+    OpenLogs(uuid::Uuid),
+    RefreshLogs,
+    LogsLoaded {
         game_id: uuid::Uuid,
-        result: Result<LaunchOutcome, String>,
+        result: Result<String, String>,
     },
 }
 
@@ -66,4 +69,9 @@ pub enum SettingsAction {
     Env(crate::draft::EnvAction),
     DefaultRunner(Option<uuid::Uuid>),
     PrefixRoot(PathBuf),
+    EnableEsync(bool),
+    EnableFsync(bool),
+    EnableMangoHud(bool),
+    AutoInstallDxvkNvapi(bool),
+    DxvkNvapiSource(Option<PathBuf>),
 }

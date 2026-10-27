@@ -1,9 +1,20 @@
 use crate::{LaunchError, LaunchRequest};
 use display::{SessionType, should_use_gamescope};
-use launcher_core::{DllOverride, OverrideMode};
+use launcher_core::{DllOverride, OverrideMode, RunnerKind};
 use prefix::plan_for_game;
 use runner_wine::WineContext;
 use std::collections::BTreeMap;
+
+const TUNING_VARIABLES: [&str; 8] = [
+    "WINEESYNC",
+    "WINEFSYNC",
+    "PROTON_NO_ESYNC",
+    "PROTON_NO_FSYNC",
+    "DXVK_ENABLE_NVAPI",
+    "DXVK_NVAPI_ALLOW_OTHER_DRIVERS",
+    "PROTON_ENABLE_NVAPI",
+    "PROTON_DISABLE_NVAPI",
+];
 
 fn mode_value(mode: OverrideMode) -> &'static str {
     match mode {
@@ -56,6 +67,38 @@ pub fn validate_dll_name(name: &str) -> Result<(), LaunchError> {
     Ok(())
 }
 
+fn apply_tuning(env: &mut BTreeMap<String, String>, request: &LaunchRequest) {
+    let tuning = &request.tuning;
+    match request.runner.kind {
+        RunnerKind::Wine => {
+            if tuning.enable_esync {
+                env.insert("WINEESYNC".into(), "1".into());
+            }
+            if tuning.enable_fsync {
+                env.insert("WINEFSYNC".into(), "1".into());
+            }
+            if tuning.enable_dxvk_nvapi {
+                env.insert("DXVK_ENABLE_NVAPI".into(), "1".into());
+                env.insert("DXVK_NVAPI_ALLOW_OTHER_DRIVERS".into(), "1".into());
+            }
+        }
+        RunnerKind::Proton => {
+            if !tuning.enable_esync {
+                env.insert("PROTON_NO_ESYNC".into(), "1".into());
+            }
+            if !tuning.enable_fsync {
+                env.insert("PROTON_NO_FSYNC".into(), "1".into());
+            }
+            if tuning.enable_dxvk_nvapi {
+                env.insert("PROTON_ENABLE_NVAPI".into(), "1".into());
+                env.insert("DXVK_NVAPI_ALLOW_OTHER_DRIVERS".into(), "1".into());
+            } else {
+                env.insert("PROTON_DISABLE_NVAPI".into(), "1".into());
+            }
+        }
+    }
+}
+
 pub fn build_env(request: &LaunchRequest) -> Result<BTreeMap<String, String>, LaunchError> {
     let prefix_plan = plan_for_game(
         &request.game,
@@ -72,6 +115,9 @@ pub fn build_env(request: &LaunchRequest) -> Result<BTreeMap<String, String>, La
 
     let mut env = request.inherited_env.clone();
     env.remove("WINEDLLOVERRIDES");
+    for key in TUNING_VARIABLES {
+        env.remove(key);
+    }
 
     if request.global_env.contains_key("WINEDLLOVERRIDES")
         || request.game.env_overrides.contains_key("WINEDLLOVERRIDES")
@@ -88,6 +134,7 @@ pub fn build_env(request: &LaunchRequest) -> Result<BTreeMap<String, String>, La
     }
 
     env.extend(context.base_env());
+    apply_tuning(&mut env, request);
     env.extend(request.global_env.clone());
     env.extend(request.game.env_overrides.clone());
 
@@ -238,6 +285,9 @@ mod tests {
             steam_compat_client: PathBuf::from("/data/steam-compat-client"),
             default_prefix_root: PathBuf::from("/data/prefixes"),
             gamescope_path: None,
+            tuning: crate::LaunchTuning::default(),
+            log_path: None,
+            dxvk_nvapi_source: None,
         }
     }
 
@@ -378,5 +428,120 @@ mod tests {
                 "expected {name:?} to be rejected"
             );
         }
+    }
+
+    fn tuning() -> crate::LaunchTuning {
+        crate::LaunchTuning {
+            enable_esync: true,
+            enable_fsync: true,
+            ..crate::LaunchTuning::default()
+        }
+    }
+
+    #[test]
+    fn wine_esync_and_fsync_are_injected_when_enabled() {
+        let mut request = request();
+        request.tuning = tuning();
+        let env = build_env(&request).unwrap();
+        assert_eq!(env["WINEESYNC"], "1");
+        assert_eq!(env["WINEFSYNC"], "1");
+    }
+
+    #[test]
+    fn wine_esync_and_fsync_are_absent_when_disabled() {
+        let request = request();
+        let env = build_env(&request).unwrap();
+        assert!(!env.contains_key("WINEESYNC"));
+        assert!(!env.contains_key("WINEFSYNC"));
+    }
+
+    #[test]
+    fn proton_disables_esync_and_fsync_only_when_turned_off() {
+        let mut request = request();
+        request.runner.kind = RunnerKind::Proton;
+        request.tuning = tuning();
+
+        let env = build_env(&request).unwrap();
+        assert!(!env.contains_key("PROTON_NO_ESYNC"));
+        assert!(!env.contains_key("PROTON_NO_FSYNC"));
+
+        request.tuning.enable_esync = false;
+        request.tuning.enable_fsync = false;
+        let env = build_env(&request).unwrap();
+        assert_eq!(env["PROTON_NO_ESYNC"], "1");
+        assert_eq!(env["PROTON_NO_FSYNC"], "1");
+        assert!(!env.contains_key("WINEESYNC"));
+        assert!(!env.contains_key("WINEFSYNC"));
+    }
+
+    #[test]
+    fn wine_nvapi_environment_is_injected_when_enabled() {
+        let mut request = request();
+        request.tuning = crate::LaunchTuning {
+            enable_dxvk_nvapi: true,
+            ..crate::LaunchTuning::default()
+        };
+        let env = build_env(&request).unwrap();
+        assert_eq!(env["DXVK_ENABLE_NVAPI"], "1");
+        assert_eq!(env["DXVK_NVAPI_ALLOW_OTHER_DRIVERS"], "1");
+    }
+
+    #[test]
+    fn proton_nvapi_environment_toggles_between_enable_and_disable() {
+        let mut request = request();
+        request.runner.kind = RunnerKind::Proton;
+        request.tuning = crate::LaunchTuning {
+            enable_dxvk_nvapi: true,
+            ..crate::LaunchTuning::default()
+        };
+
+        let env = build_env(&request).unwrap();
+        assert_eq!(env["PROTON_ENABLE_NVAPI"], "1");
+        assert_eq!(env["DXVK_NVAPI_ALLOW_OTHER_DRIVERS"], "1");
+        assert!(!env.contains_key("PROTON_DISABLE_NVAPI"));
+
+        request.tuning.enable_dxvk_nvapi = false;
+        let env = build_env(&request).unwrap();
+        assert_eq!(env["PROTON_DISABLE_NVAPI"], "1");
+        assert!(!env.contains_key("PROTON_ENABLE_NVAPI"));
+    }
+
+    #[test]
+    fn inherited_tuning_variables_are_dropped() {
+        let mut request = request();
+        request.inherited_env = BTreeMap::from([
+            ("WINEESYNC".into(), "1".into()),
+            ("WINEFSYNC".into(), "1".into()),
+            ("PROTON_NO_ESYNC".into(), "1".into()),
+            ("PROTON_NO_FSYNC".into(), "1".into()),
+            ("DXVK_ENABLE_NVAPI".into(), "1".into()),
+            ("DXVK_NVAPI_ALLOW_OTHER_DRIVERS".into(), "1".into()),
+            ("PROTON_ENABLE_NVAPI".into(), "1".into()),
+            ("PROTON_DISABLE_NVAPI".into(), "1".into()),
+        ]);
+
+        let env = build_env(&request).unwrap();
+        for key in [
+            "WINEESYNC",
+            "WINEFSYNC",
+            "PROTON_NO_ESYNC",
+            "PROTON_NO_FSYNC",
+            "DXVK_ENABLE_NVAPI",
+            "DXVK_NVAPI_ALLOW_OTHER_DRIVERS",
+            "PROTON_ENABLE_NVAPI",
+            "PROTON_DISABLE_NVAPI",
+        ] {
+            assert!(!env.contains_key(key), "{key} should have been dropped");
+        }
+    }
+
+    #[test]
+    fn game_environment_overrides_tuning_defaults() {
+        let mut request = request();
+        request.tuning = tuning();
+        request.game.env_overrides = BTreeMap::from([("WINEESYNC".into(), "0".into())]);
+        let env = build_env(&request).unwrap();
+        assert_eq!(env["WINEESYNC"], "0");
+        assert_eq!(env["WINEFSYNC"], "1");
     }
 }
