@@ -141,7 +141,7 @@ pub fn build_env(request: &LaunchRequest) -> Result<BTreeMap<String, String>, La
     let gamescope_available = request.gamescope_path.is_some();
     let uses_gamescope =
         should_use_gamescope(&request.game.display, request.session, gamescope_available);
-    if request.session == SessionType::X11 && !uses_gamescope {
+    if !uses_gamescope {
         if let Some(monitor) = request
             .game
             .display
@@ -150,7 +150,19 @@ pub fn build_env(request: &LaunchRequest) -> Result<BTreeMap<String, String>, La
             .map(str::trim)
             .filter(|monitor| !monitor.is_empty())
         {
-            env.insert("__GL_SYNC_DISPLAY_DEVICE".into(), monitor.to_string());
+            match request.session {
+                SessionType::X11 => {
+                    env.insert("__GL_SYNC_DISPLAY_DEVICE".into(), monitor.to_string());
+                }
+                SessionType::Wayland => {
+                    env.insert("WAYLANDDRV_PRIMARY_MONITOR".into(), monitor.to_string());
+                    if request.runner.kind == RunnerKind::Proton {
+                        env.insert("PROTON_ENABLE_WAYLAND".into(), "1".into());
+                        env.insert("PROTON_WAYLAND_MONITOR".into(), monitor.to_string());
+                    }
+                }
+                SessionType::Unknown => {}
+            }
         }
     }
 
@@ -375,15 +387,66 @@ mod tests {
     }
 
     #[test]
-    fn wayland_never_injects_x11_display_variable() {
+    fn wayland_monitor_targets_wine_wayland_driver() {
         let mut request = request();
         request.session = SessionType::Wayland;
         request.game.display.monitor = Some("eDP-1".into());
-        assert!(
-            !build_env(&request)
-                .unwrap()
-                .contains_key("__GL_SYNC_DISPLAY_DEVICE")
-        );
+
+        let env = build_env(&request).unwrap();
+        assert_eq!(env["WAYLANDDRV_PRIMARY_MONITOR"], "eDP-1");
+        assert!(!env.contains_key("__GL_SYNC_DISPLAY_DEVICE"));
+        assert!(!env.contains_key("PROTON_ENABLE_WAYLAND"));
+        assert!(!env.contains_key("PROTON_WAYLAND_MONITOR"));
+    }
+
+    #[test]
+    fn wayland_monitor_enables_proton_wayland_driver() {
+        let mut request = request();
+        request.session = SessionType::Wayland;
+        request.runner.kind = RunnerKind::Proton;
+        request.runner.binary_path = PathBuf::from("/opt/proton/proton");
+        request.runner.root_dir = PathBuf::from("/opt/proton");
+        request.game.prefix_path = Some(PathBuf::from("/data/compat"));
+        request.game.display.monitor = Some("HDMI-1".into());
+
+        let env = build_env(&request).unwrap();
+        assert_eq!(env["PROTON_ENABLE_WAYLAND"], "1");
+        assert_eq!(env["PROTON_WAYLAND_MONITOR"], "HDMI-1");
+        assert_eq!(env["WAYLANDDRV_PRIMARY_MONITOR"], "HDMI-1");
+        assert!(!env.contains_key("__GL_SYNC_DISPLAY_DEVICE"));
+    }
+
+    #[test]
+    fn wayland_without_selected_monitor_keeps_driver_defaults() {
+        let mut request = request();
+        request.session = SessionType::Wayland;
+        request.runner.kind = RunnerKind::Proton;
+        request.runner.binary_path = PathBuf::from("/opt/proton/proton");
+        request.runner.root_dir = PathBuf::from("/opt/proton");
+        request.game.prefix_path = Some(PathBuf::from("/data/compat"));
+
+        let env = build_env(&request).unwrap();
+        assert!(!env.contains_key("PROTON_ENABLE_WAYLAND"));
+        assert!(!env.contains_key("PROTON_WAYLAND_MONITOR"));
+        assert!(!env.contains_key("WAYLANDDRV_PRIMARY_MONITOR"));
+    }
+
+    #[test]
+    fn gamescope_uses_output_flag_instead_of_monitor_env() {
+        let mut request = request();
+        request.session = SessionType::Wayland;
+        request.runner.kind = RunnerKind::Proton;
+        request.runner.binary_path = PathBuf::from("/opt/proton/proton");
+        request.runner.root_dir = PathBuf::from("/opt/proton");
+        request.game.prefix_path = Some(PathBuf::from("/data/compat"));
+        request.game.display.monitor = Some("HDMI-1".into());
+        request.game.display.gamescope = GamescopeMode::Forced;
+        request.gamescope_path = Some(PathBuf::from("/usr/bin/gamescope"));
+
+        let env = build_env(&request).unwrap();
+        assert!(!env.contains_key("PROTON_ENABLE_WAYLAND"));
+        assert!(!env.contains_key("PROTON_WAYLAND_MONITOR"));
+        assert!(!env.contains_key("WAYLANDDRV_PRIMARY_MONITOR"));
     }
 
     #[test]

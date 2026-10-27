@@ -229,7 +229,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
 
     let resolution_controls = if !gamescope_effective {
         column![text(
-            "当前不会使用 gamescope：分辨率与刷新率不生效；X11 只设置 __GL_SYNC_DISPLAY_DEVICE。"
+            "当前不会使用 gamescope：分辨率与刷新率不生效；X11 设置 __GL_SYNC_DISPLAY_DEVICE，Wayland 设置 Proton/Wine 的 Wayland 显示器变量。"
         )
         .size(12)]
     } else {
@@ -274,6 +274,15 @@ pub fn view(app: &App) -> Element<'_, Message> {
     if !app.monitors.iter().any(|output| output.connected) {
         display_section =
             display_section.push(text("未检测到已连接显示器，点击“刷新”重新扫描").size(12));
+    }
+
+    if app.session == application::SessionType::Wayland {
+        display_section = display_section.push(
+            text(
+                "Wayland 下选择显示器会启用 Proton 的 Wayland 驱动（PROTON_ENABLE_WAYLAND）并设置 PROTON_WAYLAND_MONITOR / WAYLANDDRV_PRIMARY_MONITOR，需要 Proton/Wine 支持 Wayland 驱动。",
+            )
+            .size(12),
+        );
     }
 
     if app.gamescope_path.is_none() {

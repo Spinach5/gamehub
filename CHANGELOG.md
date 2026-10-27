@@ -2,6 +2,34 @@
 
 本文件记录每个实施阶段完成的内容、与规格的偏差以及验证结果。
 
+## v0.3.1 — Wayland 下应用所选显示器（2026-10-27）
+
+### 完成内容
+
+- 修复 Wayland 下游戏详情中选择的显示器未传给 Wine/Proton 的问题；此前只有
+  X11 注入 `__GL_SYNC_DISPLAY_DEVICE`。
+- 未使用 gamescope 且已选择显示器时：
+  - X11：继续注入 `__GL_SYNC_DISPLAY_DEVICE`。
+  - Wine：注入 `WAYLANDDRV_PRIMARY_MONITOR`。
+  - Proton：注入 `PROTON_ENABLE_WAYLAND=1`、`PROTON_WAYLAND_MONITOR` 和
+    `WAYLANDDRV_PRIMARY_MONITOR`。
+- 使用 gamescope 时仍通过 `-O <显示器>` 传递，不重复注入环境变量。
+- 游戏详情的显示区新增 Wayland 环境变量说明。
+
+### 与规格的偏差
+
+- 系统 Wine 需要已启用 Wayland 驱动才会响应显示器变量；仍走 XWayland 的 Wine
+  不受影响。
+- 未对原生 GUI 做自动化点击验证。
+
+### 验证
+
+- 本机 GE-Proton11-7 的 `proton` 脚本确认读取 `PROTON_ENABLE_WAYLAND`，并将
+  `PROTON_WAYLAND_MONITOR` 映射为 `WAYLANDDRV_PRIMARY_MONITOR`。
+- `cargo fmt --all --check`、`cargo clippy --workspace --all-targets -- -D warnings`：
+  通过。
+- `cargo test --workspace`：205 passed，1 ignored。
+
 ## v0.3.0 — 结束运行中的游戏与显示器自动扫描（2026-10-27）
 
 ### 完成内容
