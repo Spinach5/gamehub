@@ -1,4 +1,4 @@
-use application::X11Output;
+use application::MonitorOutput;
 use launcher_core::{Arch, DisplayBackend, GamescopeMode, OverrideMode, Runner};
 use std::fmt;
 use uuid::Uuid;
@@ -109,26 +109,44 @@ pub fn override_mode_choice(value: OverrideMode) -> Choice<OverrideMode> {
         .unwrap_or_else(|| Choice::new(OverrideMode::NativeBuiltin, "原生+内置 (n,b)"))
 }
 
-pub fn monitor_choices(outputs: &[X11Output]) -> Vec<Choice<Option<String>>> {
+pub fn monitor_choices(outputs: &[MonitorOutput]) -> Vec<Choice<Option<String>>> {
     let mut choices = vec![Choice::new(None, "（自动）")];
     choices.extend(
         outputs
             .iter()
             .filter(|output| output.connected)
-            .map(|output| Choice::new(Some(output.name.clone()), output.name.clone())),
+            .map(|output| Choice::new(Some(output.name.clone()), monitor_label(output))),
     );
     choices
 }
 
-pub fn monitor_choice(outputs: &[X11Output], selected: Option<String>) -> Choice<Option<String>> {
+pub fn monitor_choice(
+    outputs: &[MonitorOutput],
+    selected: Option<String>,
+) -> Choice<Option<String>> {
     match selected {
         Some(name)
             if outputs
                 .iter()
                 .any(|output| output.connected && output.name == name) =>
         {
-            Choice::new(Some(name.clone()), name)
+            let label = outputs
+                .iter()
+                .find(|output| output.name == name)
+                .map(monitor_label)
+                .unwrap_or_else(|| name.clone());
+            Choice::new(Some(name), label)
         }
         _ => Choice::new(None, "（自动）"),
+    }
+}
+
+fn monitor_label(output: &MonitorOutput) -> String {
+    match output.current_mode {
+        Some((width, height, Some(refresh))) => {
+            format!("{} ({}x{} @ {}Hz)", output.name, width, height, refresh)
+        }
+        Some((width, height, None)) => format!("{} ({}x{})", output.name, width, height),
+        None => output.name.clone(),
     }
 }

@@ -1,7 +1,9 @@
+use std::fs;
+use std::path::Path;
 use std::process::Command;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct X11Output {
+pub struct MonitorOutput {
     pub name: String,
     pub connected: bool,
     pub active: bool,
@@ -27,8 +29,8 @@ fn parse_refresh(token: &str) -> Option<u32> {
     }
 }
 
-pub fn parse_xrandr_output(text: &str) -> Vec<X11Output> {
-    let mut outputs: Vec<X11Output> = Vec::new();
+pub fn parse_xrandr_output(text: &str) -> Vec<MonitorOutput> {
+    let mut outputs: Vec<MonitorOutput> = Vec::new();
     let mut current: Option<usize> = None;
 
     for line in text.lines() {
@@ -59,7 +61,7 @@ pub fn parse_xrandr_output(text: &str) -> Vec<X11Output> {
                 }
             }
 
-            outputs.push(X11Output {
+            outputs.push(MonitorOutput {
                 name: name.to_string(),
                 connected: state == "connected",
                 active: geometry.is_some(),
@@ -110,7 +112,7 @@ pub fn parse_xrandr_output(text: &str) -> Vec<X11Output> {
     outputs
 }
 
-pub fn list_x11_outputs() -> Vec<X11Output> {
+fn list_xrandr_outputs() -> Vec<MonitorOutput> {
     let output = match Command::new("xrandr").arg("--query").output() {
         Ok(output) => output,
         Err(error) => {
@@ -123,6 +125,110 @@ pub fn list_x11_outputs() -> Vec<X11Output> {
         return Vec::new();
     }
     parse_xrandr_output(&String::from_utf8_lossy(&output.stdout))
+}
+
+/// Lists connected monitors regardless of the current session type. xrandr is
+/// preferred because its output names match what gamescope expects, with
+/// wayland-info and DRM sysfs as fallbacks for sessions without XWayland.
+pub fn list_outputs() -> Vec<MonitorOutput> {
+    let outputs = list_xrandr_outputs();
+    if outputs.iter().any(|output| output.connected) {
+        return outputs;
+    }
+
+    let outputs = list_wayland_outputs();
+    if outputs.iter().any(|output| output.connected) {
+        return outputs;
+    }
+
+    list_drm_outputs()
+}
+
+fn list_wayland_outputs() -> Vec<MonitorOutput> {
+    let output = match Command::new("wayland-info").output() {
+        Ok(output) => output,
+        Err(error) => {
+            tracing::debug!(%error, "cannot run wayland-info");
+            return Vec::new();
+        }
+    };
+    if !output.status.success() {
+        tracing::debug!(code = ?output.status.code(), "wayland-info exited with failure");
+        return Vec::new();
+    }
+    parse_wayland_info_outputs(&String::from_utf8_lossy(&output.stdout))
+}
+
+pub fn parse_wayland_info_outputs(text: &str) -> Vec<MonitorOutput> {
+    let mut outputs = Vec::new();
+    let mut in_output = false;
+
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("interface:") {
+            in_output = trimmed.contains("'wl_output'");
+            continue;
+        }
+        if !in_output {
+            continue;
+        }
+        if let Some(value) = trimmed.strip_prefix("name:") {
+            let name = value.trim().trim_matches('\'');
+            if !name.is_empty() {
+                outputs.push(MonitorOutput {
+                    name: name.to_string(),
+                    connected: true,
+                    active: true,
+                    current_mode: None,
+                });
+            }
+            in_output = false;
+        }
+    }
+
+    outputs
+}
+
+fn list_drm_outputs() -> Vec<MonitorOutput> {
+    let entries = match fs::read_dir("/sys/class/drm") {
+        Ok(entries) => entries,
+        Err(error) => {
+            tracing::debug!(%error, "cannot read /sys/class/drm");
+            return Vec::new();
+        }
+    };
+
+    let mut outputs: Vec<MonitorOutput> = Vec::new();
+    for entry in entries.flatten() {
+        let file_name = entry.file_name();
+        let Some(file_name) = file_name.to_str() else {
+            continue;
+        };
+        let Some(name) = drm_connector_name(file_name) else {
+            continue;
+        };
+        if outputs.iter().any(|output| output.name == name) {
+            continue;
+        }
+        let status = fs::read_to_string(Path::new("/sys/class/drm").join(file_name).join("status"))
+            .unwrap_or_default();
+        outputs.push(MonitorOutput {
+            name,
+            connected: status.trim() == "connected",
+            active: false,
+            current_mode: None,
+        });
+    }
+
+    outputs
+}
+
+fn drm_connector_name(entry: &str) -> Option<String> {
+    let (card, connector) = entry.split_once('-')?;
+    if !card.starts_with("card") || connector.starts_with("Writeback") {
+        return None;
+    }
+    Some(connector.replace("-A-", "-"))
 }
 
 #[cfg(test)]
@@ -186,5 +292,36 @@ HDMI-1 connected 1920x1080+1920+0 (normal) 500mm x 300mm
         assert_eq!(outputs.len(), 2);
         assert_eq!(outputs[0].current_mode, Some((1920, 1080, Some(60))));
         assert_eq!(outputs[1].current_mode, Some((1920, 1080, Some(120))));
+    }
+
+    #[test]
+    fn parses_connected_wayland_outputs() {
+        let text = r#"interface: 'wl_output',                              version:  4, name:  4
+	name: HDMI-1
+	description: Stargate Technology
+	mode: 1920x1080@143.880
+interface: 'wl_seat',                                version:  8, name: 17
+	name: seat0
+interface: 'wl_output',                              version:  4, name:  5
+	name: eDP-1
+	description: Built-in display
+"#;
+        let outputs = parse_wayland_info_outputs(text);
+        assert_eq!(outputs.len(), 2);
+        assert_eq!(outputs[0].name, "HDMI-1");
+        assert_eq!(outputs[1].name, "eDP-1");
+        assert!(outputs.iter().all(|output| output.connected));
+    }
+
+    #[test]
+    fn maps_drm_connector_names() {
+        assert_eq!(drm_connector_name("card0-eDP-1").as_deref(), Some("eDP-1"));
+        assert_eq!(
+            drm_connector_name("card1-HDMI-A-1").as_deref(),
+            Some("HDMI-1")
+        );
+        assert_eq!(drm_connector_name("card0-DP-2").as_deref(), Some("DP-2"));
+        assert_eq!(drm_connector_name("card0-Writeback-1"), None);
+        assert_eq!(drm_connector_name("card0"), None);
     }
 }

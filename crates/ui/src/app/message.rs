@@ -56,6 +56,13 @@ pub enum Message {
     },
     Launch(uuid::Uuid),
     LaunchEvent(LaunchEvent),
+    Stop(uuid::Uuid),
+    StopFinished {
+        game_id: uuid::Uuid,
+        result: Result<(), String>,
+    },
+    RefreshMonitors,
+    MonitorsLoaded(Result<Vec<application::MonitorOutput>, String>),
     OpenLogs(uuid::Uuid),
     RefreshLogs,
     LogsLoaded {

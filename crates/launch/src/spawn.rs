@@ -1,8 +1,12 @@
 use crate::{LaunchError, LaunchPlan};
+use nix::errno::Errno;
+use nix::sys::signal::{Signal, killpg};
+use nix::unistd::Pid;
 use std::fs::OpenOptions as StdOpenOptions;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::fs::File;
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
@@ -37,6 +41,7 @@ pub async fn spawn_plan_with_log(
         .env_clear()
         .envs(&plan.env)
         .stdin(Stdio::null())
+        .process_group(0)
         .kill_on_drop(false);
 
     if log.is_some() {
@@ -64,6 +69,29 @@ pub async fn spawn_plan_with_log(
     }
 
     Ok(child)
+}
+
+/// Terminates the whole process group, falling back to SIGKILL when the group
+/// does not exit shortly after SIGTERM.
+pub async fn terminate_process_group(process_group: u32) -> Result<(), LaunchError> {
+    let group = Pid::from_raw(process_group as i32);
+    match killpg(group, Signal::SIGTERM) {
+        Ok(()) | Err(Errno::ESRCH) => {}
+        Err(error) => return Err(LaunchError::Terminate(error.to_string())),
+    }
+
+    for _ in 0..50 {
+        match killpg(group, None::<Signal>) {
+            Ok(()) => tokio::time::sleep(Duration::from_millis(100)).await,
+            Err(Errno::ESRCH) => return Ok(()),
+            Err(error) => return Err(LaunchError::Terminate(error.to_string())),
+        }
+    }
+
+    match killpg(group, Signal::SIGKILL) {
+        Ok(()) | Err(Errno::ESRCH) => Ok(()),
+        Err(error) => Err(LaunchError::Terminate(error.to_string())),
+    }
 }
 
 async fn open_log(path: &Path, plan: &LaunchPlan) -> std::io::Result<File> {

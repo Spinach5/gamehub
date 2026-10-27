@@ -18,7 +18,7 @@ impl App {
                     .map(crate::draft::GameDraft::from_game);
                 self.prefix_status = None;
                 self.screen = Screen::GameDetail;
-                self.refresh_prefix_status(id)
+                Task::batch([self.refresh_prefix_status(id), self.refresh_monitors()])
             }
             Message::NewGame => {
                 self.draft = None;
@@ -487,6 +487,7 @@ impl App {
                     LaunchEvent::Finished { game_id, outcome } => {
                         self.starting.remove(&game_id);
                         self.running.remove(&game_id);
+                        self.stopping.remove(&game_id);
                         let timestamp = chrono::Utc::now().timestamp();
                         if let Some(game) = self.games.iter_mut().find(|game| game.id == game_id) {
                             game.last_played_at = Some(timestamp);
@@ -496,7 +497,7 @@ impl App {
                                 draft.last_played_at = Some(timestamp);
                             }
                         }
-                        if !outcome.success {
+                        if !outcome.success && !outcome.stopped {
                             self.error = Some(ErrorNotice::new(format!(
                                 "游戏异常退出（退出码 {:?}）",
                                 outcome.exit_code
@@ -506,7 +507,41 @@ impl App {
                     LaunchEvent::Failed { game_id, error } => {
                         self.starting.remove(&game_id);
                         self.running.remove(&game_id);
+                        self.stopping.remove(&game_id);
                         self.error = Some(ErrorNotice::new("启动失败").with_detail(error));
+                    }
+                }
+                Task::none()
+            }
+            Message::Stop(game_id) => {
+                if !self.running.contains_key(&game_id) {
+                    return Task::none();
+                }
+                let Some(service) = self.service.clone() else {
+                    self.error = Some(ErrorNotice::new("数据库不可用"));
+                    return Task::none();
+                };
+                self.stopping.insert(game_id);
+                Task::perform(service.stop_game(game_id), move |result| {
+                    Message::StopFinished {
+                        game_id,
+                        result: result.map_err(|error| error.to_string()),
+                    }
+                })
+            }
+            Message::StopFinished { game_id, result } => {
+                if let Err(error) = result {
+                    self.stopping.remove(&game_id);
+                    self.error = Some(ErrorNotice::new("结束游戏失败").with_detail(error));
+                }
+                Task::none()
+            }
+            Message::RefreshMonitors => self.refresh_monitors(),
+            Message::MonitorsLoaded(result) => {
+                match result {
+                    Ok(monitors) => self.monitors = monitors,
+                    Err(error) => {
+                        self.error = Some(ErrorNotice::new("扫描显示器失败").with_detail(error));
                     }
                 }
                 Task::none()

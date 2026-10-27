@@ -34,8 +34,19 @@ pub fn view(app: &App) -> Element<'_, Message> {
         .spacing(4)
         .width(Length::Fill);
 
+        let launch_button = if app.starting.contains(&game.id) {
+            button("启动中")
+        } else if app.running.contains_key(&game.id) {
+            let stopping = app.stopping.contains(&game.id);
+            button(if stopping { "结束中" } else { "结束" })
+                .style(iced::widget::button::danger)
+                .on_press_maybe((!stopping).then_some(Message::Stop(game.id)))
+        } else {
+            button("启动").on_press_maybe(state.is_none().then_some(Message::Launch(game.id)))
+        };
+
         let actions = row![
-            button("启动").on_press_maybe(state.is_none().then_some(Message::Launch(game.id))),
+            launch_button,
             button("设置").on_press(Message::SelectGame(game.id)),
             button("日志").on_press(Message::OpenLogs(game.id)),
         ]

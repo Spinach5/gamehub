@@ -11,6 +11,8 @@ pub enum AppError {
     WorkingDirMissing(PathBuf),
     #[error("游戏不存在")]
     GameNotFound,
+    #[error("游戏已在运行")]
+    GameAlreadyRunning,
     #[error("游戏正在运行，不能删除")]
     GameRunning,
     #[error("游戏正在运行，不能删除 Prefix")]
@@ -27,6 +29,8 @@ pub enum AppError {
     DxvkNvapiSourceMissing,
     #[error("等待游戏进程失败: {0}")]
     ProcessWait(#[source] std::io::Error),
+    #[error("结束游戏进程失败: {0}")]
+    Stop(#[source] launch::LaunchError),
     #[error(transparent)]
     Storage(#[from] storage::StorageError),
     #[error(transparent)]

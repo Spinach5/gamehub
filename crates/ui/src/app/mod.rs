@@ -4,7 +4,7 @@ mod view;
 
 use crate::draft::{EnvRow, GameDraft};
 use application::{
-    AppPaths, AppService, Game, PrefixPlan, PrefixStatus, Runner, SessionType, X11Output,
+    AppPaths, AppService, Game, MonitorOutput, PrefixPlan, PrefixStatus, Runner, SessionType,
     validate_env_key,
 };
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -213,12 +213,13 @@ pub struct App {
     pub draft: Option<GameDraft>,
     pub prefix_status: Option<PrefixStatus>,
     pub session: SessionType,
-    pub x11_outputs: Vec<X11Output>,
+    pub monitors: Vec<MonitorOutput>,
     pub gamescope_path: Option<PathBuf>,
     pub mangohud_path: Option<PathBuf>,
     pub pending: PendingState,
     pub running: HashMap<Uuid, PathBuf>, // game id -> prefix path
     pub starting: HashSet<Uuid>,
+    pub stopping: HashSet<Uuid>,
     pub dxvk_dir: Option<PathBuf>,
     pub logs_game: Option<Uuid>,
     pub logs_content: String,
@@ -244,7 +245,7 @@ impl App {
             draft: None,
             prefix_status: None,
             session: SessionType::Unknown,
-            x11_outputs: Vec::new(),
+            monitors: Vec::new(),
             gamescope_path: None,
             mangohud_path: None,
             pending: PendingState {
@@ -253,6 +254,7 @@ impl App {
             },
             running: HashMap::new(),
             starting: HashSet::new(),
+            stopping: HashSet::new(),
             dxvk_dir: None,
             logs_game: None,
             logs_content: String::new(),
@@ -286,7 +288,7 @@ impl App {
         self.games = data.games;
         self.runners = data.runners;
         self.session = data.session;
-        self.x11_outputs = data.x11_outputs;
+        self.monitors = data.monitors;
         self.gamescope_path = data.gamescope_path;
         self.mangohud_path = data.mangohud_path;
 
@@ -481,10 +483,23 @@ impl App {
         if self.starting.contains(&game_id) {
             Some("启动中")
         } else if self.running.contains_key(&game_id) {
-            Some("游玩")
+            if self.stopping.contains(&game_id) {
+                Some("结束中")
+            } else {
+                Some("游玩")
+            }
         } else {
             None
         }
+    }
+
+    fn refresh_monitors(&self) -> iced::Task<Message> {
+        let Some(service) = self.service.clone() else {
+            return iced::Task::none();
+        };
+        iced::Task::perform(service.list_monitors(), |result| {
+            Message::MonitorsLoaded(result.map_err(|error| error.to_string()))
+        })
     }
 
     fn load_logs(&self, game_id: Uuid) -> iced::Task<Message> {
@@ -604,11 +619,34 @@ mod tests {
             outcome: LaunchOutcome {
                 exit_code: Some(0),
                 success: true,
+                stopped: false,
             },
         }));
         assert_eq!(app.launch_state_label(id), None);
         assert!(!app.running.contains_key(&id));
         assert!(!app.starting.contains(&id));
+        assert!(!app.stopping.contains(&id));
+    }
+
+    #[test]
+    fn stopping_a_running_game_is_labelled() {
+        let mut app = app();
+        let id = Uuid::new_v4();
+        app.running.insert(id, PathBuf::from("/tmp/prefix"));
+        app.stopping.insert(id);
+
+        assert_eq!(app.launch_state_label(id), Some("结束中"));
+
+        let _ = app.update(Message::LaunchEvent(LaunchEvent::Finished {
+            game_id: id,
+            outcome: LaunchOutcome {
+                exit_code: None,
+                success: false,
+                stopped: true,
+            },
+        }));
+        assert_eq!(app.launch_state_label(id), None);
+        assert!(app.error.is_none());
     }
 
     #[test]

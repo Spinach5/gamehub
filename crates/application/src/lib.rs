@@ -24,6 +24,6 @@ pub use settings::{
     SETTING_PREFIX_ROOT,
 };
 
-pub use display::{SessionType, X11Output, should_use_gamescope};
+pub use display::{MonitorOutput, SessionType, should_use_gamescope};
 pub use launcher_core::{AppPaths, Game, Runner};
 pub use storage::ensure_app_dirs;

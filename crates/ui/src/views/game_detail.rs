@@ -21,6 +21,18 @@ pub fn view(app: &App) -> Element<'_, Message> {
     };
 
     let launch_state = app.launch_state_label(draft.id);
+    let launch_button = if app.starting.contains(&draft.id) {
+        button("启动中")
+    } else if app.running.contains_key(&draft.id) {
+        let stopping = app.stopping.contains(&draft.id);
+        button(if stopping { "结束中" } else { "结束" })
+            .style(iced::widget::button::danger)
+            .on_press_maybe((!stopping).then_some(Message::Stop(draft.id)))
+    } else {
+        button("启动").on_press_maybe(
+            (!draft.is_new && !app.pending.deleting).then_some(Message::Launch(draft.id)),
+        )
+    };
     let header = row![
         button("返回").on_press(Message::Navigate(Screen::Library)),
         text(if draft.is_new {
@@ -32,10 +44,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
         text(launch_state.unwrap_or_default()).size(12),
         iced::widget::horizontal_space(),
         button("保存").on_press_maybe((!app.pending.saving).then_some(Message::SaveDraft)),
-        button("启动").on_press_maybe(
-            (!draft.is_new && launch_state.is_none() && !app.pending.deleting)
-                .then_some(Message::Launch(draft.id))
-        ),
+        launch_button,
         button("删除游戏").on_press_maybe(
             (!draft.is_new && launch_state.is_none() && !app.pending.deleting)
                 .then_some(Message::ConfirmDelete(DeleteTarget::Game(draft.id)))
@@ -202,12 +211,12 @@ pub fn view(app: &App) -> Element<'_, Message> {
         })
     };
 
-    let monitor: iced::Element<'_, Message> = if app.session == application::SessionType::X11 {
+    let monitor = {
         let base = base_display.clone();
         pick_list(
-            crate::widgets::monitor_choices(&app.x11_outputs),
+            crate::widgets::monitor_choices(&app.monitors),
             Some(crate::widgets::monitor_choice(
-                &app.x11_outputs,
+                &app.monitors,
                 draft.display.monitor.clone(),
             )),
             move |choice| {
@@ -216,21 +225,6 @@ pub fn view(app: &App) -> Element<'_, Message> {
                 Message::Draft(DraftAction::Display(config))
             },
         )
-        .into()
-    } else {
-        let value = draft.display.monitor.clone().unwrap_or_default();
-        let base = base_display.clone();
-        text_input("输出名（可留空）", &value)
-            .on_input(move |value| {
-                let mut config = base.clone();
-                config.monitor = if value.trim().is_empty() {
-                    None
-                } else {
-                    Some(value)
-                };
-                Message::Draft(DraftAction::Display(config))
-            })
-            .into()
     };
 
     let resolution_controls = if !gamescope_effective {
@@ -266,11 +260,21 @@ pub fn view(app: &App) -> Element<'_, Message> {
         row![text("后端："), backend_pick].spacing(8),
         text("后端字段仅作记录；实际 X11/Wayland 以启动时的会话检测为准。").size(12),
         row![text("gamescope："), gamescope_pick].spacing(8),
-        row![text("显示器："), monitor].spacing(8),
+        row![
+            text("显示器："),
+            monitor,
+            button("刷新").on_press(Message::RefreshMonitors),
+        ]
+        .spacing(8),
         fullscreen,
         resolution_controls,
     ]
     .spacing(8);
+
+    if !app.monitors.iter().any(|output| output.connected) {
+        display_section =
+            display_section.push(text("未检测到已连接显示器，点击“刷新”重新扫描").size(12));
+    }
 
     if app.gamescope_path.is_none() {
         let hint = match draft.display.gamescope {

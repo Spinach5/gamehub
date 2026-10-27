@@ -40,4 +40,6 @@ pub enum LaunchError {
         #[source]
         source: std::io::Error,
     },
+    #[error("failed to terminate process group: {0}")]
+    Terminate(String),
 }

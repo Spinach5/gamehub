@@ -9,6 +9,7 @@ pub use ::launch::{LaunchRequest, LaunchTuning, validate_dll_name, validate_env_
 pub struct LaunchOutcome {
     pub exit_code: Option<i32>,
     pub success: bool,
+    pub stopped: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -55,6 +56,10 @@ impl AppService {
     ) -> Result<LaunchOutcome, AppError> {
         let game_id = request.game.id;
 
+        if self.process_group(game_id).is_some() {
+            return Err(AppError::GameAlreadyRunning);
+        }
+
         if request.tuning.enable_dxvk_nvapi && request.runner.kind == RunnerKind::Wine {
             let source = request
                 .dxvk_nvapi_source
@@ -80,9 +85,17 @@ impl AppService {
             tokio::task::spawn_blocking(move || ::launch::build_plan(&plan_request)).await??;
 
         let mut child = ::launch::spawn_plan_with_log(&plan, request.log_path.as_deref()).await?;
+        if let Some(process_group) = child.id() {
+            if !self.register_process(game_id, process_group) {
+                let _ = child.kill().await;
+                return Err(AppError::GameAlreadyRunning);
+            }
+        }
         let _ = events.send(LaunchEvent::Started { game_id });
 
         let wait_result = child.wait().await;
+        self.unregister_process(game_id);
+        let stopped = self.take_stop_requested(game_id);
         let timestamp = unix_now();
 
         let db = self.db_handle();
@@ -97,9 +110,22 @@ impl AppService {
         let outcome = LaunchOutcome {
             exit_code: status.code(),
             success: status.success(),
+            stopped,
         };
         let _ = events.send(LaunchEvent::Finished { game_id, outcome });
         Ok(outcome)
+    }
+
+    pub async fn stop_game(self, game_id: Uuid) -> Result<(), AppError> {
+        let Some(process_group) = self.process_group(game_id) else {
+            return Ok(());
+        };
+        self.mark_stop_requested(game_id);
+        if let Err(error) = ::launch::terminate_process_group(process_group).await {
+            self.clear_stop_requested(game_id);
+            return Err(AppError::Stop(error));
+        }
+        Ok(())
     }
 }
 

@@ -1,5 +1,5 @@
 use crate::{AppError, AppService};
-use display::{SessionType, X11Output};
+use display::{MonitorOutput, SessionType};
 use launcher_core::{Game, Runner};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -10,7 +10,7 @@ pub struct LoadedData {
     pub runners: Vec<Runner>,
     pub settings_map: BTreeMap<String, String>,
     pub session: SessionType,
-    pub x11_outputs: Vec<X11Output>,
+    pub monitors: Vec<MonitorOutput>,
     pub gamescope_path: Option<PathBuf>,
     pub mangohud_path: Option<PathBuf>,
 }
@@ -25,11 +25,15 @@ impl AppService {
                 runners: db.list_runners()?,
                 settings_map: db.get_all_settings()?,
                 session: display::detect_session(),
-                x11_outputs: display::list_x11_outputs(),
+                monitors: display::list_outputs(),
                 gamescope_path: display::gamescope_path(),
                 mangohud_path: display::mangohud_path(),
             })
         })
         .await?
+    }
+
+    pub async fn list_monitors(self) -> Result<Vec<MonitorOutput>, AppError> {
+        Ok(tokio::task::spawn_blocking(display::list_outputs).await?)
     }
 }

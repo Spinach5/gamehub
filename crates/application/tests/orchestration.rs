@@ -522,6 +522,39 @@ async fn launch_emits_started_then_finished() {
 }
 
 #[tokio::test]
+async fn stopping_a_running_game_terminates_it() {
+    let _guard = EXEC_LOCK.lock().await;
+    let (_dir, game, request) = launch_fixture(RunnerKind::Wine, "#!/bin/sh\nsleep 30\n");
+    let service = AppService::open_in_memory().unwrap();
+    service.clone().save_game(game.clone(), true).await.unwrap();
+
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    let launch = tokio::spawn(service.clone().launch_game_with_events(request, tx));
+
+    let mut started = false;
+    while let Some(event) = rx.recv().await {
+        if matches!(event, LaunchEvent::Started { game_id } if game_id == game.id) {
+            started = true;
+            break;
+        }
+    }
+    assert!(started, "launch never reported Started");
+
+    service.clone().stop_game(game.id).await.unwrap();
+    let outcome = launch.await.unwrap().unwrap();
+    assert!(outcome.stopped);
+    assert!(!outcome.success);
+
+    let mut finished = None;
+    while let Some(event) = rx.recv().await {
+        if let LaunchEvent::Finished { outcome, .. } = event {
+            finished = Some(outcome);
+        }
+    }
+    assert!(finished.is_some_and(|outcome| outcome.stopped));
+}
+
+#[tokio::test]
 async fn failed_start_emits_only_failed() {
     let (_dir, mut game, mut request) = launch_fixture(RunnerKind::Wine, "#!/bin/sh\nexit 0\n");
     game.executable_path = game.executable_path.with_file_name("missing.exe");
