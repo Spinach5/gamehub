@@ -4,10 +4,24 @@ use iced::{Color, Font, Theme};
 
 pub const FONT_FAMILY: &str = "Noto Sans CJK SC";
 
+/// Noto Sans CJK ships only Regular and Bold faces. An intermediate weight
+/// makes iced fall back to a face without CJK coverage, which draws Chinese
+/// as nothing at all, so every request snaps to one of the two real faces.
+fn shipped_weight(weight: Weight) -> Weight {
+    if matches!(
+        weight,
+        Weight::Semibold | Weight::Bold | Weight::ExtraBold | Weight::Black
+    ) {
+        Weight::Bold
+    } else {
+        Weight::Normal
+    }
+}
+
 pub fn font(weight: Weight) -> Font {
     Font {
         family: Family::Name(FONT_FAMILY),
-        weight,
+        weight: shipped_weight(weight),
         ..Font::DEFAULT
     }
 }
@@ -217,5 +231,24 @@ mod tests {
     fn tokens_select_the_matching_table() {
         assert!(std::ptr::eq(tokens(&ThemeMode::Light.theme()), &LIGHT));
         assert!(std::ptr::eq(tokens(&ThemeMode::Dark.theme()), &DARK));
+    }
+
+    #[test]
+    fn font_weights_snap_to_the_shipped_faces() {
+        for weight in [
+            Weight::Semibold,
+            Weight::Bold,
+            Weight::ExtraBold,
+            Weight::Black,
+        ] {
+            assert_eq!(font(weight).weight, Weight::Bold, "{weight:?}");
+        }
+        for weight in [Weight::Thin, Weight::Light, Weight::Normal, Weight::Medium] {
+            assert_eq!(font(weight).weight, Weight::Normal, "{weight:?}");
+        }
+        assert!(matches!(
+            font(Weight::Semibold).family,
+            Family::Name(FONT_FAMILY)
+        ));
     }
 }
