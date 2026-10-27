@@ -25,6 +25,8 @@ pub struct GameDraft {
     pub working_dir: Option<PathBuf>,
     pub runner_id: Option<Uuid>,
     pub prefix_path: Option<PathBuf>,
+    pub cover_path: Option<PathBuf>,
+    pub cover_source: Option<PathBuf>,
     pub arch: Arch,
     pub display: DisplayConfig,
     pub resolution_width: String,
@@ -46,6 +48,8 @@ pub enum DraftAction {
     Runner(Option<Uuid>),
     Prefix(Option<PathBuf>),
     ClearPrefix,
+    CoverSource(PathBuf),
+    ClearCover,
     Display(DisplayConfig),
     ResolutionWidth(String),
     ResolutionHeight(String),
@@ -283,6 +287,8 @@ impl GameDraft {
             working_dir: None,
             runner_id: None,
             prefix_path: None,
+            cover_path: None,
+            cover_source: None,
             arch: Arch::Win64,
             display: DisplayConfig::default(),
             resolution_width: String::new(),
@@ -311,6 +317,8 @@ impl GameDraft {
             working_dir: game.working_dir.clone(),
             runner_id: game.runner_id,
             prefix_path: game.prefix_path.clone(),
+            cover_path: game.cover_path.clone(),
+            cover_source: None,
             arch: game.arch,
             display: game.display.clone(),
             resolution_width,
@@ -351,6 +359,11 @@ impl GameDraft {
             DraftAction::Runner(value) => self.runner_id = value,
             DraftAction::Prefix(value) => self.prefix_path = value,
             DraftAction::ClearPrefix => self.prefix_path = None,
+            DraftAction::CoverSource(path) => self.cover_source = Some(path),
+            DraftAction::ClearCover => {
+                self.cover_source = None;
+                self.cover_path = None;
+            }
             DraftAction::Display(display) => self.display = display,
             DraftAction::ResolutionWidth(value) => self.resolution_width = value,
             DraftAction::ResolutionHeight(value) => self.resolution_height = value,
@@ -409,6 +422,7 @@ impl GameDraft {
             working_dir: self.working_dir.clone(),
             runner_id: self.runner_id,
             prefix_path: self.prefix_path.clone(),
+            cover_path: self.cover_path.clone(),
             arch: self.arch,
             display,
             env_overrides,
@@ -437,6 +451,8 @@ mod tests {
             working_dir: None,
             runner_id: None,
             prefix_path: None,
+            cover_path: None,
+            cover_source: None,
             arch: Arch::Win64,
             display: DisplayConfig::default(),
             resolution_width: String::new(),
@@ -630,6 +646,7 @@ mod tests {
             mode: OverrideMode::NativeBuiltin,
         }];
         game.args = vec!["-skip".into()];
+        game.cover_path = Some(PathBuf::from("/data/covers/game.png"));
         game.display = DisplayConfig {
             resolution: Some((2560, 1440)),
             refresh_rate: Some(144),
@@ -640,6 +657,18 @@ mod tests {
 
         let draft = GameDraft::from_game(&game);
         assert_eq!(draft.to_game().unwrap(), game);
+    }
+
+    #[test]
+    fn cover_actions_set_and_clear() {
+        let mut draft = draft();
+        draft.apply(DraftAction::CoverSource(PathBuf::from("/tmp/a.png")));
+        assert_eq!(draft.cover_source, Some(PathBuf::from("/tmp/a.png")));
+
+        draft.cover_path = Some(PathBuf::from("/data/covers/a.png"));
+        draft.apply(DraftAction::ClearCover);
+        assert_eq!(draft.cover_source, None);
+        assert_eq!(draft.cover_path, None);
     }
 
     #[test]

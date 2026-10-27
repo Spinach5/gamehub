@@ -133,6 +133,7 @@ pub struct Game {
     pub working_dir: Option<PathBuf>,
     pub runner_id: Option<Uuid>,
     pub prefix_path: Option<PathBuf>,
+    pub cover_path: Option<PathBuf>,
     pub arch: Arch,
     pub display: DisplayConfig,
     pub env_overrides: BTreeMap<String, String>,
@@ -280,6 +281,7 @@ mod tests {
             working_dir: Some(PathBuf::from("/games/Cyberpunk 2077/bin/x64")),
             runner_id: Some(Uuid::new_v4()),
             prefix_path: None,
+            cover_path: Some(PathBuf::from("/data/covers/abc.png")),
             arch: Arch::Win64,
             display: DisplayConfig::default(),
             env_overrides: BTreeMap::from([
@@ -317,6 +319,14 @@ mod tests {
     }
 
     #[test]
+    fn game_round_trips_with_cover_path() {
+        let mut value = sample_game();
+        value.cover_path = Some(PathBuf::from("/data/covers/cyberpunk.png"));
+        let encoded = serde_json::to_string(&value).unwrap();
+        assert_eq!(serde_json::from_str::<Game>(&encoded).unwrap(), value);
+    }
+
+    #[test]
     fn game_json_uses_fixed_field_names() {
         let value = serde_json::to_value(sample_game()).unwrap();
         for key in [
@@ -326,6 +336,7 @@ mod tests {
             "working_dir",
             "runner_id",
             "prefix_path",
+            "cover_path",
             "arch",
             "display",
             "env_overrides",

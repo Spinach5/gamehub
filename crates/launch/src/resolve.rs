@@ -53,6 +53,7 @@ mod tests {
             working_dir: None,
             runner_id,
             prefix_path: None,
+            cover_path: None,
             arch: Arch::Win64,
             display: Default::default(),
             env_overrides: Default::default(),

@@ -1,5 +1,6 @@
 use super::{DeleteTarget, PrefixStatus, Screen};
 use crate::draft::DraftAction;
+use crate::theme::ThemeMode;
 use application::{Game, LaunchEvent, LoadedData, Runner};
 use std::path::PathBuf;
 
@@ -12,7 +13,12 @@ pub enum Message {
     LoadFailed(String),
     Draft(DraftAction),
     SaveDraft,
-    DraftSaved(Result<Game, String>),
+    DraftSaved {
+        game_id: uuid::Uuid,
+        revision: u64,
+        cover_changed: bool,
+        result: Result<Game, String>,
+    },
     Pick(crate::dialogs::DialogIntent),
     DialogResult {
         intent: crate::dialogs::DialogIntent,
@@ -47,6 +53,11 @@ pub enum Message {
     Settings(SettingsAction),
     SaveSettings,
     SettingsSaved(Result<(), String>),
+    ThemeSaved {
+        mode: crate::theme::ThemeMode,
+        result: Result<(), String>,
+    },
+    WindowResized(f32),
     ConfirmDelete(DeleteTarget),
     CancelDelete,
     DeleteConfirmed,
@@ -81,4 +92,5 @@ pub enum SettingsAction {
     EnableMangoHud(bool),
     AutoInstallDxvkNvapi(bool),
     DxvkNvapiSource(Option<PathBuf>),
+    Theme(ThemeMode),
 }

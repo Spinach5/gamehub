@@ -206,6 +206,7 @@ mod tests {
                 working_dir: Some(dir.path().to_path_buf()),
                 runner_id: None,
                 prefix_path: Some(prefix),
+                cover_path: None,
                 arch: Arch::Win64,
                 display: DisplayConfig::default(),
                 env_overrides: BTreeMap::new(),

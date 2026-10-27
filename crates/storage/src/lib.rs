@@ -37,6 +37,7 @@ pub fn ensure_app_dirs(paths: &AppPaths) -> Result<(), StorageError> {
     for dir in [
         &paths.data_root,
         &paths.logs_dir,
+        &paths.covers_dir,
         &paths.default_prefix_root,
         &paths.steam_compat_client,
     ] {
@@ -65,6 +66,7 @@ mod tests {
             working_dir: Some(PathBuf::from("/games/Test")),
             runner_id: Some(Uuid::new_v4()),
             prefix_path: Some(PathBuf::from("/data/prefixes/test")),
+            cover_path: Some(PathBuf::from("/data/covers/sample.png")),
             arch: Arch::Win64,
             display: DisplayConfig {
                 gamescope: GamescopeMode::Forced,
@@ -88,6 +90,10 @@ mod tests {
         let game = sample_game("赛博朋克 2077");
         db.insert_game(&game).unwrap();
         assert_eq!(db.get_game(game.id).unwrap(), Some(game.clone()));
+        assert_eq!(
+            db.get_game(game.id).unwrap().unwrap().cover_path,
+            game.cover_path
+        );
         assert_eq!(db.list_games().unwrap(), vec![game]);
     }
 
@@ -264,13 +270,13 @@ mod tests {
     }
 
     #[test]
-    fn in_memory_database_has_v1_schema() {
+    fn in_memory_database_has_v2_schema() {
         let db = Db::open_in_memory().unwrap();
         let version: i64 = db
             .conn
             .query_row("SELECT version FROM schema_version", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(version, 1);
+        assert_eq!(version, 2);
 
         let tables: i64 = db
             .conn
@@ -294,21 +300,67 @@ mod tests {
     }
 
     #[test]
+    fn migrates_v1_database_to_v2() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("gamehub.db");
+        {
+            let conn = rusqlite::Connection::open(&path).unwrap();
+            conn.execute_batch("CREATE TABLE schema_version (version INTEGER NOT NULL);")
+                .unwrap();
+            conn.execute_batch(crate::schema::V1).unwrap();
+            conn.execute("INSERT INTO schema_version (version) VALUES (1)", [])
+                .unwrap();
+            conn.execute(
+                "INSERT INTO games (id, name, executable_path, working_dir, runner_id,
+                                    prefix_path, arch, display_json, env_overrides_json,
+                                    dll_overrides_json, args_json, created_at, last_played_at)
+                 VALUES ('11111111-1111-1111-1111-111111111111', 'Old', '/games/old.exe',
+                         NULL, NULL, NULL, 'win64',
+                         '{\"backend\":\"auto\",\"monitor\":null,\"resolution\":null,\"refresh_rate\":null,\"fullscreen\":true,\"gamescope\":\"auto\"}',
+                         '{}', '[]', '[]', 1700000000, NULL)",
+                [],
+            )
+            .unwrap();
+        }
+
+        let db = Db::open(&path).unwrap();
+        let version: i64 = db
+            .conn
+            .query_row("SELECT version FROM schema_version", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, 2);
+
+        let mut game = db
+            .get_game(Uuid::parse_str("11111111-1111-1111-1111-111111111111").unwrap())
+            .unwrap()
+            .unwrap();
+        assert_eq!(game.name, "Old");
+        assert_eq!(game.cover_path, None);
+
+        game.cover_path = Some(PathBuf::from("/data/covers/old.png"));
+        db.update_game(&game).unwrap();
+        assert_eq!(
+            db.get_game(game.id).unwrap().unwrap().cover_path,
+            game.cover_path
+        );
+    }
+
+    #[test]
     fn newer_schema_is_rejected() {
         let dir = tempdir().unwrap();
         let path = dir.path().join("gamehub.db");
         {
             let db = Db::open(&path).unwrap();
             db.conn
-                .execute("UPDATE schema_version SET version = 2", [])
+                .execute("UPDATE schema_version SET version = 3", [])
                 .unwrap();
         }
 
         let result = Db::open(&path);
         match result {
             Err(StorageError::UnsupportedSchema {
-                found: 2,
-                supported: 1,
+                found: 3,
+                supported: 2,
             }) => {}
             Err(other) => panic!("unexpected error: {other:?}"),
             Ok(_) => panic!("expected unsupported schema error"),
@@ -322,6 +374,7 @@ mod tests {
         ensure_app_dirs(&paths).unwrap();
         assert!(paths.data_root.is_dir());
         assert!(paths.logs_dir.is_dir());
+        assert!(paths.covers_dir.is_dir());
         assert!(paths.default_prefix_root.is_dir());
         assert!(paths.steam_compat_client.is_dir());
     }

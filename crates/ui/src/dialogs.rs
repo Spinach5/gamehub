@@ -10,12 +10,16 @@ pub enum DialogIntent {
     PickDxvkDir,
     PickDxvkNvapiDir,
     PickPrefixRoot,
+    PickCover,
 }
 
 fn dialog_impl(intent: DialogIntent) -> Option<std::path::PathBuf> {
     let dialog = rfd::FileDialog::new();
     match intent {
         DialogIntent::PickExe => dialog.add_filter("Windows 程序", &["exe"]).pick_file(),
+        DialogIntent::PickCover => dialog
+            .add_filter("封面图片", &["png", "jpg", "jpeg", "webp", "bmp"])
+            .pick_file(),
         DialogIntent::PickWorkingDir
         | DialogIntent::PickProtonDir
         | DialogIntent::PickPrefixDir

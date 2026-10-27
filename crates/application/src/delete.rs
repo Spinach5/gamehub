@@ -26,6 +26,7 @@ impl AppService {
         target: DeleteTarget,
         running: HashMap<Uuid, PathBuf>,
         default_runner_id: Option<Uuid>,
+        logs_dir: PathBuf,
     ) -> Result<(), AppError> {
         match target {
             DeleteTarget::Runner(id) => {
@@ -78,10 +79,30 @@ impl AppService {
                 if running.contains_key(&id) {
                     return Err(AppError::GameRunning);
                 }
+                let log_path = logs_dir.join("games").join(format!("{id}.log"));
                 let db = self.db_handle();
                 tokio::task::spawn_blocking(move || {
                     let db = db.lock().map_err(|_| AppError::DatabaseLocked)?;
+                    let cover = db.get_game(id)?.and_then(|game| game.cover_path);
                     db.delete_game(id)?;
+                    if let Some(path) = cover {
+                        if let Err(error) = std::fs::remove_file(&path) {
+                            tracing::warn!(
+                                error = %error,
+                                path = %path.display(),
+                                "failed to remove game cover"
+                            );
+                        }
+                    }
+                    if let Err(error) = std::fs::remove_file(&log_path) {
+                        if error.kind() != std::io::ErrorKind::NotFound {
+                            tracing::warn!(
+                                error = %error,
+                                path = %log_path.display(),
+                                "failed to remove game log"
+                            );
+                        }
+                    }
                     Ok(())
                 })
                 .await?

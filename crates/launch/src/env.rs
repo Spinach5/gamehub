@@ -300,6 +300,7 @@ mod tests {
             working_dir: None,
             runner_id: None,
             prefix_path: Some(PathBuf::from("/data/prefix")),
+            cover_path: None,
             arch: Arch::Win64,
             display: DisplayConfig::default(),
             env_overrides: BTreeMap::new(),

@@ -42,12 +42,17 @@ cargo run -p ui
 | `logs/` | 每日滚动日志 |
 | `prefixes/` | 默认 prefix 根（可在设置中覆盖） |
 | `steam-compat-client/` | Proton 的 `STEAM_COMPAT_CLIENT_INSTALL_PATH` |
+| `covers/` | 游戏封面副本（自定义封面） |
 
 ## 已知限制
 
 - X11 非 gamescope 路径**不修改分辨率/刷新率**，只设置
   `__GL_SYNC_DISPLAY_DEVICE`；分辨率与刷新率仅在 gamescope 生效时可用。
 - 数据库中的路径必须为 UTF-8，非 UTF-8 路径导入会直接报错。
+- 自定义封面在 iced 0.13 中无法做圆角裁剪，显示为直角；默认渐变封面为圆角。
+- 删除确认模态框打开时，滚轮仍可能滚动背后的页面（iced 0.13 的 opaque 只拦截点击）。
+- 删除封面时按数据库记录的路径直接移除，不校验该路径是否位于 `covers/` 之下；
+  请勿手工把 `cover_path` 改成封面目录以外的文件。
 
 ## 检查
 

@@ -3,10 +3,12 @@ mod update;
 mod view;
 
 use crate::draft::{EnvRow, GameDraft};
+use crate::theme::ThemeMode;
 use application::{
     AppPaths, AppService, Game, MonitorOutput, PrefixPlan, PrefixStatus, Runner, SessionType,
     validate_env_key,
 };
+use std::collections::hash_map::Entry;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
@@ -15,8 +17,11 @@ pub use application::{
     AppError as ServiceError, DeleteTarget, LaunchOutcome, SETTING_AUTO_INSTALL_DXVK_NVAPI,
     SETTING_DEFAULT_RUNNER_ID, SETTING_DXVK_NVAPI_SOURCE, SETTING_ENABLE_ESYNC,
     SETTING_ENABLE_FSYNC, SETTING_ENABLE_MANGOHUD, SETTING_GLOBAL_ENV, SETTING_PREFIX_ROOT,
+    SETTING_UI_THEME,
 };
 pub use message::{Message, SettingsAction};
+
+pub const LOG_TAIL_LINES: usize = 1000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Screen {
@@ -57,6 +62,7 @@ pub struct SettingsState {
     pub enable_mangohud: bool,
     pub auto_install_dxvk_nvapi: bool,
     pub dxvk_nvapi_source: Option<PathBuf>,
+    pub theme: ThemeMode,
 }
 
 fn parse_bool(map: &BTreeMap<String, String>, key: &str, default: bool) -> Result<bool, String> {
@@ -79,6 +85,7 @@ impl SettingsState {
             enable_mangohud: false,
             auto_install_dxvk_nvapi: false,
             dxvk_nvapi_source: None,
+            theme: ThemeMode::Light,
         }
     }
 
@@ -134,6 +141,7 @@ impl SettingsState {
                 .get(SETTING_DXVK_NVAPI_SOURCE)
                 .filter(|value| !value.is_empty())
                 .map(PathBuf::from),
+            theme: ThemeMode::from_setting(map.get(SETTING_UI_THEME).map(String::as_str)),
         })
     }
 
@@ -185,6 +193,10 @@ impl SettingsState {
                 })
                 .transpose()?,
         );
+        map.insert(
+            SETTING_UI_THEME.to_string(),
+            Some(self.theme.as_setting().to_string()),
+        );
         Ok(map)
     }
 }
@@ -209,8 +221,10 @@ pub struct App {
     pub games: Vec<Game>,
     pub runners: Vec<Runner>,
     pub settings: SettingsState,
+    pub theme_saving: bool,
     pub selected_game: Option<Uuid>,
     pub draft: Option<GameDraft>,
+    pub draft_revision: u64,
     pub prefix_status: Option<PrefixStatus>,
     pub session: SessionType,
     pub monitors: Vec<MonitorOutput>,
@@ -223,8 +237,11 @@ pub struct App {
     pub dxvk_dir: Option<PathBuf>,
     pub logs_game: Option<Uuid>,
     pub logs_content: String,
+    pub logs_error: Option<String>,
     pub confirming: Option<DeleteTarget>,
     pub error: Option<ErrorNotice>,
+    pub cover_handles: HashMap<Uuid, iced::widget::image::Handle>,
+    pub window_width: f32,
 }
 
 impl App {
@@ -241,8 +258,10 @@ impl App {
             games: Vec::new(),
             runners: Vec::new(),
             settings,
+            theme_saving: false,
             selected_game: None,
             draft: None,
+            draft_revision: 0,
             prefix_status: None,
             session: SessionType::Unknown,
             monitors: Vec::new(),
@@ -258,8 +277,11 @@ impl App {
             dxvk_dir: None,
             logs_game: None,
             logs_content: String::new(),
+            logs_error: None,
             confirming: None,
             error: None,
+            cover_handles: HashMap::new(),
+            window_width: 1180.0,
         };
 
         match service {
@@ -313,12 +335,44 @@ impl App {
         }
 
         self.sort_games();
+
+        self.cover_handles = self
+            .games
+            .iter()
+            .filter_map(|game| Some((game.id, Self::cover_handle(game.cover_path.as_deref())?)))
+            .collect();
+    }
+
+    fn cover_handle(path: Option<&Path>) -> Option<iced::widget::image::Handle> {
+        path.filter(|path| path.is_file())
+            .map(|path| iced::widget::image::Handle::from_path(path.to_path_buf()))
+    }
+
+    fn cover_handle_bytes(path: Option<&Path>) -> Option<iced::widget::image::Handle> {
+        let path = path.filter(|path| path.is_file())?;
+        let bytes = std::fs::read(path).ok()?;
+        Some(iced::widget::image::Handle::from_bytes(bytes))
+    }
+
+    fn touch_draft(&mut self) {
+        self.draft_revision = self.draft_revision.wrapping_add(1);
     }
 
     fn save_draft(&mut self) -> iced::Task<Message> {
+        if self.pending.saving || self.pending.deleting {
+            return iced::Task::none();
+        }
         let Some(draft) = self.draft.clone() else {
             return iced::Task::none();
         };
+        // Compare against the persisted game: `draft` may already reflect a
+        // cleared cover, so comparing it with the derived game would miss it.
+        let persisted_cover = self
+            .games
+            .iter()
+            .find(|existing| existing.id == draft.id)
+            .and_then(|existing| existing.cover_path.clone());
+        let cover_changed = draft.cover_source.is_some() || draft.cover_path != persisted_cover;
         let game = match draft.to_game() {
             Ok(game) => game,
             Err(error) => {
@@ -332,32 +386,80 @@ impl App {
         };
 
         self.pending.saving = true;
-        iced::Task::perform(service.save_game(game, draft.is_new), |result| {
-            Message::DraftSaved(result.map_err(|error| error.to_string()))
-        })
+        let game_id = game.id;
+        let revision = self.draft_revision;
+        let cover_source = draft.cover_source.clone();
+        let covers_dir = self.paths.covers_dir.clone();
+        iced::Task::perform(
+            service.save_game(game, draft.is_new, cover_source, covers_dir),
+            move |result| Message::DraftSaved {
+                game_id,
+                revision,
+                cover_changed,
+                result: result.map_err(|error| error.to_string()),
+            },
+        )
     }
 
-    fn apply_draft_saved(&mut self, result: Result<Game, String>) -> iced::Task<Message> {
+    fn apply_draft_saved(
+        &mut self,
+        game_id: Uuid,
+        revision: u64,
+        cover_changed: bool,
+        result: Result<Game, String>,
+    ) -> iced::Task<Message> {
         self.pending.saving = false;
         match result {
             Ok(game) => {
-                if let Some(existing) = self
+                let merged_last_played = if let Some(existing) = self
                     .games
                     .iter_mut()
                     .find(|existing| existing.id == game.id)
                 {
+                    let latest_played = existing.last_played_at.max(game.last_played_at);
                     *existing = game.clone();
+                    existing.last_played_at = latest_played;
+                    latest_played
                 } else {
                     self.games.push(game.clone());
+                    game.last_played_at
+                };
+                if cover_changed {
+                    match Self::cover_handle_bytes(game.cover_path.as_deref()) {
+                        Some(handle) => {
+                            self.cover_handles.insert(game.id, handle);
+                        }
+                        None => {
+                            self.cover_handles.remove(&game.id);
+                        }
+                    }
+                } else if let Entry::Vacant(entry) = self.cover_handles.entry(game.id) {
+                    if let Some(handle) = Self::cover_handle(game.cover_path.as_deref()) {
+                        entry.insert(handle);
+                    }
                 }
                 self.sort_games();
-                self.selected_game = Some(game.id);
-                self.draft = Some(GameDraft::from_game(&game));
-                self.error = None;
-                return self.refresh_prefix_status(game.id);
+                let current = self.draft.as_ref().is_some_and(|draft| draft.id == game_id)
+                    && self.draft_revision == revision;
+                if current {
+                    self.selected_game = Some(game.id);
+                    let mut draft = GameDraft::from_game(&game);
+                    draft.last_played_at = merged_last_played;
+                    self.draft = Some(draft);
+                    self.touch_draft();
+                    self.error = None;
+                    return self.refresh_prefix_status(game.id);
+                }
+                if self.selected_game == Some(game.id) {
+                    return self.refresh_prefix_status(game.id);
+                }
             }
             Err(error) => {
-                self.error = Some(ErrorNotice::new("保存失败").with_detail(error));
+                let current = self.draft.as_ref().is_some_and(|draft| draft.id == game_id)
+                    && self.draft_revision == revision;
+                if current {
+                    self.error = Some(ErrorNotice::new("保存失败").with_detail(error));
+                }
             }
         }
         iced::Task::none()
@@ -380,11 +482,13 @@ impl App {
                         self.selected_game = None;
                         self.screen = Screen::GameDetail;
                     }
+                    self.touch_draft();
                 }
             }
             DialogIntent::PickWorkingDir => {
                 if let (Some(draft), Some(path)) = (&mut self.draft, path) {
                     draft.working_dir = Some(path);
+                    self.touch_draft();
                 }
             }
             DialogIntent::PickProtonDir => {
@@ -396,11 +500,13 @@ impl App {
                         });
                     }
                 }
+                self.pending.importing_proton = false;
             }
             DialogIntent::PickPrefixDir => {
                 if let (Some(draft), Some(path)) = (&mut self.draft, path) {
                     draft.prefix_path = Some(path);
                     let id = draft.id;
+                    self.touch_draft();
                     self.prefix_status = None;
                     return self.refresh_prefix_status(id);
                 }
@@ -420,6 +526,12 @@ impl App {
                     if let Some(id) = self.selected_game {
                         return self.refresh_prefix_status(id);
                     }
+                }
+            }
+            DialogIntent::PickCover => {
+                if let (Some(draft), Some(path)) = (&mut self.draft, path) {
+                    draft.apply(crate::draft::DraftAction::CoverSource(path));
+                    self.touch_draft();
                 }
             }
         }
@@ -479,6 +591,10 @@ impl App {
         self.games.sort_by_key(|game| game.name.to_lowercase());
     }
 
+    pub fn theme(&self) -> iced::Theme {
+        self.settings.theme.theme()
+    }
+
     pub fn launch_state_label(&self, game_id: Uuid) -> Option<&'static str> {
         if self.starting.contains(&game_id) {
             Some("启动中")
@@ -510,17 +626,23 @@ impl App {
     }
 
     pub fn subscription(&self) -> iced::Subscription<Message> {
+        let resized =
+            iced::window::resize_events().map(|(_id, size)| Message::WindowResized(size.width));
+
         if self.screen == Screen::Logs {
-            iced::time::every(std::time::Duration::from_secs(1)).map(|_| Message::RefreshLogs)
+            iced::Subscription::batch([
+                resized,
+                iced::time::every(std::time::Duration::from_secs(1)).map(|_| Message::RefreshLogs),
+            ])
         } else {
-            iced::Subscription::none()
+            resized
         }
     }
 }
 
 async fn read_log_tail(path: PathBuf) -> Result<String, String> {
     match tokio::fs::read_to_string(&path).await {
-        Ok(text) => Ok(tail_lines(&text, 1000)),
+        Ok(text) => Ok(tail_lines(&text, LOG_TAIL_LINES)),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(String::new()),
         Err(error) => Err(error.to_string()),
     }
@@ -566,6 +688,24 @@ mod tests {
     }
 
     #[test]
+    fn settings_default_theme_is_light() {
+        let settings = settings_from(&[]).unwrap();
+        assert_eq!(settings.theme, ThemeMode::Light);
+    }
+
+    #[test]
+    fn settings_parse_theme_with_fallback() {
+        assert_eq!(
+            settings_from(&[(SETTING_UI_THEME, "dark")]).unwrap().theme,
+            ThemeMode::Dark
+        );
+        assert_eq!(
+            settings_from(&[(SETTING_UI_THEME, "nope")]).unwrap().theme,
+            ThemeMode::Light
+        );
+    }
+
+    #[test]
     fn settings_parse_boolean_spellings() {
         let settings = settings_from(&[
             (SETTING_ENABLE_ESYNC, "0"),
@@ -592,6 +732,7 @@ mod tests {
         settings.enable_mangohud = true;
         settings.auto_install_dxvk_nvapi = true;
         settings.dxvk_nvapi_source = Some(PathBuf::from("/opt/nvapi"));
+        settings.theme = ThemeMode::Dark;
 
         let stored: BTreeMap<String, String> = settings
             .to_map()
@@ -670,10 +811,111 @@ mod tests {
     }
 
     #[test]
+    fn logs_error_clears_stale_content() {
+        let mut app = app();
+        let id = Uuid::new_v4();
+        app.logs_game = Some(id);
+        app.logs_content = "old line".into();
+        let _ = app.update(Message::LogsLoaded {
+            game_id: id,
+            result: Err("boom".into()),
+        });
+        assert!(app.logs_content.is_empty());
+        assert_eq!(app.logs_error.as_deref(), Some("boom"));
+    }
+
+    #[test]
+    fn logs_success_clears_error() {
+        let mut app = app();
+        let id = Uuid::new_v4();
+        app.logs_game = Some(id);
+        app.logs_error = Some("boom".into());
+        let _ = app.update(Message::LogsLoaded {
+            game_id: id,
+            result: Ok("new line".into()),
+        });
+        assert_eq!(app.logs_content, "new line");
+        assert!(app.logs_error.is_none());
+    }
+
+    #[test]
     fn tail_lines_keeps_only_the_requested_suffix() {
         assert_eq!(tail_lines("a\nb\nc\n", 2), "b\nc\n");
         assert_eq!(tail_lines("a\nb", 5), "a\nb");
         assert_eq!(tail_lines("", 10), "");
         assert_eq!(tail_lines("a\nb\nc", 0), "");
+    }
+
+    #[test]
+    fn stale_draft_save_keeps_current_draft() {
+        let mut app = app();
+        let id = Uuid::new_v4();
+
+        let mut draft = GameDraft::new(PathBuf::from("/tmp/gamehub-ui-test/game.exe"));
+        draft.id = id;
+        draft.name = "Edited".into();
+        app.draft = Some(draft);
+        app.selected_game = Some(id);
+        app.draft_revision = 7;
+
+        let mut saved = GameDraft::new(PathBuf::from("/tmp/gamehub-ui-test/game.exe"));
+        saved.id = id;
+        saved.name = "Saved".into();
+        let game = saved.to_game().unwrap();
+
+        // Completion from a save started at revision 6 must not replace the
+        // draft the user has edited since (revision 7).
+        let _ = app.apply_draft_saved(id, 6, false, Ok(game));
+
+        assert_eq!(
+            app.draft.as_ref().map(|draft| draft.name.as_str()),
+            Some("Edited")
+        );
+        assert_eq!(app.draft_revision, 7);
+        assert_eq!(app.selected_game, Some(id));
+        assert_eq!(app.games.len(), 1);
+        assert_eq!(app.games[0].name, "Saved");
+
+        // A completion matching the current revision does replace the draft.
+        let revision = app.draft_revision;
+        let mut saved = app.games[0].clone();
+        saved.name = "Saved again".into();
+        let _ = app.apply_draft_saved(id, revision, false, Ok(saved));
+
+        assert_eq!(
+            app.draft.as_ref().map(|draft| draft.name.as_str()),
+            Some("Saved again")
+        );
+        assert_eq!(app.draft_revision, revision.wrapping_add(1));
+    }
+
+    #[test]
+    fn cleared_cover_drops_cached_handle() {
+        let mut app = app();
+        let id = Uuid::new_v4();
+
+        let mut draft = GameDraft::new(PathBuf::from("/tmp/gamehub-ui-test/game.exe"));
+        draft.id = id;
+        draft.name = "Before".into();
+        app.draft = Some(draft);
+        app.selected_game = Some(id);
+        app.draft_revision = 3;
+        app.cover_handles
+            .insert(id, iced::widget::image::Handle::from_bytes(vec![1, 2, 3]));
+
+        let mut saved = GameDraft::new(PathBuf::from("/tmp/gamehub-ui-test/game.exe"));
+        saved.id = id;
+        saved.name = "After".into();
+        saved.cover_path = None;
+        let game = saved.to_game().unwrap();
+
+        let _ = app.apply_draft_saved(id, 3, true, Ok(game));
+
+        assert_eq!(
+            app.draft.as_ref().map(|draft| draft.name.as_str()),
+            Some("After")
+        );
+        assert_eq!(app.selected_game, Some(id));
+        assert!(!app.cover_handles.contains_key(&id));
     }
 }

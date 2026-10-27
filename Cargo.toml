@@ -3,7 +3,7 @@ resolver = "3"
 members = ["crates/*"]
 
 [workspace.package]
-version = "0.3.3"
+version = "0.4.0"
 edition = "2024"
 rust-version = "1.85"
 
@@ -16,7 +16,8 @@ prefix = { path = "crates/prefix" }
 display = { path = "crates/display" }
 launch = { path = "crates/launch" }
 
-iced = { version = "0.13.1", features = ["tokio", "advanced"] }
+iced = { version = "0.13.1", features = ["tokio", "advanced", "image-without-codecs"] }
+image = { version = "0.24", default-features = false, features = ["png", "jpeg", "webp", "bmp"] }
 tokio = { version = "1.54", features = ["rt-multi-thread", "macros", "process", "sync", "time", "fs", "io-util"] }
 rusqlite = { version = "0.41", features = ["bundled"] }
 rfd = "0.17.2"

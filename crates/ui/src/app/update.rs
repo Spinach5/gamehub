@@ -1,6 +1,7 @@
 use super::{App, DeleteTarget, ErrorNotice, Message, Screen, SettingsAction};
 use application::{LaunchEvent, LaunchRequest, LaunchTuning};
 use iced::Task;
+use std::collections::BTreeMap;
 
 impl App {
     pub fn update(&mut self, message: Message) -> Task<Message> {
@@ -16,6 +17,7 @@ impl App {
                     .iter()
                     .find(|game| game.id == id)
                     .map(crate::draft::GameDraft::from_game);
+                self.touch_draft();
                 self.prefix_status = None;
                 self.screen = Screen::GameDetail;
                 Task::batch([self.refresh_prefix_status(id), self.refresh_monitors()])
@@ -45,6 +47,7 @@ impl App {
                 let refresh_id = self.draft.as_ref().map(|draft| draft.id);
                 if let Some(draft) = &mut self.draft {
                     draft.apply(action);
+                    self.touch_draft();
                 }
                 match (affects_prefix, refresh_id) {
                     (true, Some(id)) => {
@@ -55,7 +58,12 @@ impl App {
                 }
             }
             Message::SaveDraft => self.save_draft(),
-            Message::DraftSaved(result) => self.apply_draft_saved(result),
+            Message::DraftSaved {
+                game_id,
+                revision,
+                cover_changed,
+                result,
+            } => self.apply_draft_saved(game_id, revision, cover_changed, result),
             Message::Pick(intent) => crate::dialogs::pick(intent),
             Message::DialogResult { intent, path } => self.apply_dialog_result(intent, path),
             Message::DismissError => {
@@ -67,6 +75,9 @@ impl App {
                 Task::none()
             }
             Message::DetectSystemWine => {
+                if self.pending.detecting_wine || self.pending.importing_proton {
+                    return Task::none();
+                }
                 let Some(service) = self.service.clone() else {
                     self.error = Some(ErrorNotice::new("数据库不可用"));
                     return Task::none();
@@ -80,6 +91,7 @@ impl App {
                 self.pending.detecting_wine = false;
                 match result {
                     Ok(runners) => {
+                        self.error = None;
                         if runners.is_empty() {
                             self.error =
                                 Some(ErrorNotice::new("未找到系统 Wine，请确认 wine 在 PATH 中"));
@@ -95,12 +107,18 @@ impl App {
                 Task::none()
             }
             Message::ImportProton => {
+                if self.pending.detecting_wine || self.pending.importing_proton {
+                    return Task::none();
+                }
+                self.pending.importing_proton = true;
                 crate::dialogs::pick(crate::dialogs::DialogIntent::PickProtonDir)
             }
             Message::ProtonImported(result) => {
                 self.pending.importing_proton = false;
                 match result {
                     Ok(runner) => {
+                        self.error = None;
+                        self.runners.retain(|existing| existing.id != runner.id);
                         self.runners.push(runner);
                         self.runners
                             .sort_by_key(|runner| runner.name.to_lowercase());
@@ -112,6 +130,9 @@ impl App {
                 Task::none()
             }
             Message::SetDefaultRunner(id) => {
+                if self.pending.settings_saving || self.pending.deleting {
+                    return Task::none();
+                }
                 let Some(service) = self.service.clone() else {
                     self.error = Some(ErrorNotice::new("数据库不可用"));
                     return Task::none();
@@ -180,10 +201,15 @@ impl App {
                 self.pending.prefix.remove(&game_id);
                 match result {
                     Ok(path) => {
+                        let mut touched = false;
                         if let Some(draft) = &mut self.draft {
                             if draft.id == game_id {
                                 draft.prefix_path = Some(path);
+                                touched = true;
                             }
+                        }
+                        if touched {
+                            self.touch_draft();
                         }
                         return self.refresh_prefix_status(game_id);
                     }
@@ -273,6 +299,21 @@ impl App {
                     SettingsAction::DxvkNvapiSource(path) => {
                         self.settings.dxvk_nvapi_source = path;
                     }
+                    SettingsAction::Theme(mode) => {
+                        if self.pending.loading {
+                            return Task::none();
+                        }
+                        self.settings.theme = mode;
+                        if self.theme_saving {
+                            return Task::none();
+                        }
+                        let Some(service) = self.service.clone() else {
+                            self.error = Some(ErrorNotice::new("数据库不可用"));
+                            return Task::none();
+                        };
+                        self.theme_saving = true;
+                        return save_theme(service, mode);
+                    }
                 }
                 match (affects_prefix, self.selected_game) {
                     (true, Some(id)) => {
@@ -283,13 +324,17 @@ impl App {
                 }
             }
             Message::SaveSettings => {
-                let values = match self.settings.to_map() {
+                if self.pending.loading || self.pending.settings_saving {
+                    return Task::none();
+                }
+                let mut values = match self.settings.to_map() {
                     Ok(values) => values,
                     Err(error) => {
                         self.error = Some(ErrorNotice::new("设置校验失败").with_detail(error));
                         return Task::none();
                     }
                 };
+                values.remove(application::SETTING_UI_THEME);
                 let Some(service) = self.service.clone() else {
                     self.error = Some(ErrorNotice::new("数据库不可用"));
                     return Task::none();
@@ -303,12 +348,53 @@ impl App {
                 self.pending.settings_saving = false;
                 match result {
                     Ok(()) => {
-                        self.error = None;
+                        if self
+                            .error
+                            .as_ref()
+                            .is_some_and(|notice| is_form_notice(&notice.title))
+                        {
+                            self.error = None;
+                        }
                     }
                     Err(error) => {
                         self.error = Some(ErrorNotice::new("保存设置失败").with_detail(error));
                     }
                 }
+                Task::none()
+            }
+            Message::ThemeSaved { mode, result } => {
+                self.theme_saving = false;
+                match result {
+                    Ok(()) => {
+                        if self
+                            .error
+                            .as_ref()
+                            .is_some_and(|notice| notice.title == "保存主题失败")
+                        {
+                            self.error = None;
+                        }
+                        if self.settings.theme != mode {
+                            let Some(service) = self.service.clone() else {
+                                return Task::none();
+                            };
+                            self.theme_saving = true;
+                            return save_theme(service, self.settings.theme);
+                        }
+                    }
+                    Err(error) => {
+                        self.error = Some(ErrorNotice::new("保存主题失败").with_detail(error));
+                        if self.settings.theme != mode {
+                            if let Some(service) = self.service.clone() {
+                                self.theme_saving = true;
+                                return save_theme(service, self.settings.theme);
+                            }
+                        }
+                    }
+                }
+                Task::none()
+            }
+            Message::WindowResized(width) => {
+                self.window_width = width;
                 Task::none()
             }
             Message::ConfirmDelete(target) => {
@@ -320,6 +406,9 @@ impl App {
                 Task::none()
             }
             Message::DeleteConfirmed => {
+                if self.pending.deleting || self.pending.saving {
+                    return Task::none();
+                }
                 let Some(target) = self.confirming.clone() else {
                     return Task::none();
                 };
@@ -349,7 +438,12 @@ impl App {
                 let running = self.running.clone();
                 let default_runner_id = self.settings.default_runner_id;
                 Task::perform(
-                    service.delete(target.clone(), running, default_runner_id),
+                    service.delete(
+                        target.clone(),
+                        running,
+                        default_runner_id,
+                        self.paths.logs_dir.clone(),
+                    ),
                     move |result| Message::DeleteFinished {
                         target: target.clone(),
                         result: result.map_err(|error| error.to_string()),
@@ -368,17 +462,27 @@ impl App {
                                 if self.settings.default_runner_id == Some(id) {
                                     self.settings.default_runner_id = None;
                                 }
+                                let mut touched = false;
                                 if let Some(draft) = &mut self.draft {
                                     if draft.runner_id == Some(id) {
                                         draft.runner_id = None;
+                                        touched = true;
                                     }
+                                }
+                                if touched {
+                                    self.touch_draft();
                                 }
                             }
                             DeleteTarget::Prefix { game_id, path } => {
+                                let mut touched = false;
                                 if let Some(draft) = &mut self.draft {
                                     if draft.id == game_id {
                                         draft.prefix_path = None;
+                                        touched = true;
                                     }
+                                }
+                                if touched {
+                                    self.touch_draft();
                                 }
                                 if let Some(game) =
                                     self.games.iter_mut().find(|game| game.id == game_id)
@@ -390,6 +494,7 @@ impl App {
                             }
                             DeleteTarget::Game(id) => {
                                 self.games.retain(|game| game.id != id);
+                                self.cover_handles.remove(&id);
                                 if self.selected_game == Some(id) {
                                     self.selected_game = None;
                                     self.draft = None;
@@ -409,6 +514,9 @@ impl App {
                 Task::none()
             }
             Message::Launch(game_id) => {
+                if self.pending.saving || self.pending.deleting {
+                    return Task::none();
+                }
                 if self
                     .draft
                     .as_ref()
@@ -549,6 +657,7 @@ impl App {
             Message::OpenLogs(game_id) => {
                 self.logs_game = Some(game_id);
                 self.logs_content.clear();
+                self.logs_error = None;
                 self.screen = Screen::Logs;
                 self.load_logs(game_id)
             }
@@ -559,9 +668,13 @@ impl App {
             Message::LogsLoaded { game_id, result } => {
                 if self.logs_game == Some(game_id) {
                     match result {
-                        Ok(content) => self.logs_content = content,
+                        Ok(content) => {
+                            self.logs_content = content;
+                            self.logs_error = None;
+                        }
                         Err(error) => {
-                            self.error = Some(ErrorNotice::new("读取日志失败").with_detail(error));
+                            self.logs_error = Some(error);
+                            self.logs_content.clear();
                         }
                     }
                 }
@@ -569,6 +682,23 @@ impl App {
             }
         }
     }
+}
+
+fn is_form_notice(title: &str) -> bool {
+    matches!(title, "保存设置失败" | "设置校验失败") || title.starts_with("默认 Runner 不存在")
+}
+
+fn save_theme(service: application::AppService, mode: crate::theme::ThemeMode) -> Task<Message> {
+    let values = BTreeMap::from([(
+        application::SETTING_UI_THEME.to_string(),
+        Some(mode.as_setting().to_string()),
+    )]);
+    Task::perform(service.save_settings(values), move |result| {
+        Message::ThemeSaved {
+            mode,
+            result: result.map_err(|error| error.to_string()),
+        }
+    })
 }
 
 fn launch_task(service: application::AppService, request: LaunchRequest) -> Task<Message> {
@@ -586,4 +716,51 @@ fn launch_task(service: application::AppService, request: LaunchRequest) -> Task
             }
         }
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_form_notice;
+    use crate::app::{App, Message, ServiceError};
+    use application::AppPaths;
+    use std::path::PathBuf;
+
+    fn app() -> App {
+        let paths = AppPaths::for_root(PathBuf::from("/tmp/gamehub-update-test"));
+        let (app, _) = App::new(paths, Err(ServiceError::DatabaseLocked));
+        app
+    }
+
+    #[test]
+    fn duplicate_runner_actions_are_ignored_while_busy() {
+        let mut app = app();
+
+        app.pending.detecting_wine = true;
+        let _ = app.update(Message::DetectSystemWine);
+        assert!(app.error.is_none());
+        assert!(app.pending.detecting_wine);
+
+        app.pending.detecting_wine = false;
+        app.pending.importing_proton = true;
+        let _ = app.update(Message::ImportProton);
+        assert!(app.error.is_none());
+        assert!(app.pending.importing_proton);
+
+        app.pending.importing_proton = false;
+        app.pending.settings_saving = true;
+        let _ = app.update(Message::SetDefaultRunner(None));
+        assert!(app.error.is_none());
+        assert!(app.pending.settings_saving);
+    }
+
+    #[test]
+    fn form_notices_are_scoped() {
+        assert!(is_form_notice("保存设置失败"));
+        assert!(is_form_notice("设置校验失败"));
+        assert!(is_form_notice(
+            "默认 Runner 不存在，已重置为未选择（保存设置后生效）"
+        ));
+        assert!(!is_form_notice("保存主题失败"));
+        assert!(!is_form_notice("启动失败"));
+    }
 }

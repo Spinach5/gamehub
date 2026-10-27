@@ -10,6 +10,7 @@ pub const SETTING_ENABLE_FSYNC: &str = "enable_fsync";
 pub const SETTING_ENABLE_MANGOHUD: &str = "enable_mangohud";
 pub const SETTING_AUTO_INSTALL_DXVK_NVAPI: &str = "auto_install_dxvk_nvapi";
 pub const SETTING_DXVK_NVAPI_SOURCE: &str = "dxvk_nvapi_source";
+pub const SETTING_UI_THEME: &str = "ui_theme";
 
 impl AppService {
     pub async fn save_default_runner(self, id: Option<Uuid>) -> Result<(), AppError> {

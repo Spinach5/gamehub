@@ -27,6 +27,14 @@ pub enum AppError {
     RunnerInUse(u64),
     #[error("已启用 DXVK-NVAPI 自动安装，但未选择目录")]
     DxvkNvapiSourceMissing,
+    #[error("封面必须是 PNG / JPEG / WebP / BMP 图片: {0}")]
+    CoverUnsupportedFormat(PathBuf),
+    #[error("无法读取封面图片 {path}: {detail}")]
+    CoverInvalidImage { path: PathBuf, detail: String },
+    #[error("封面尺寸过大（{width}×{height}），单边不能超过 8192 像素")]
+    CoverTooLarge { width: u32, height: u32 },
+    #[error("复制封面失败: {0}")]
+    CoverCopy(#[source] std::io::Error),
     #[error("等待游戏进程失败: {0}")]
     ProcessWait(#[source] std::io::Error),
     #[error("结束游戏进程失败: {0}")]

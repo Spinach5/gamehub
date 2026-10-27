@@ -11,6 +11,7 @@ fn default_game_config_is_usable_without_database() {
         working_dir: None,
         runner_id: None,
         prefix_path: None,
+        cover_path: None,
         arch: Arch::Win64,
         display: DisplayConfig::default(),
         env_overrides: BTreeMap::new(),

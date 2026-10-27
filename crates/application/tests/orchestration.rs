@@ -52,6 +52,7 @@ fn launch_fixture(kind: RunnerKind, body: &str) -> (tempfile::TempDir, Game, Lau
         working_dir: Some(dir.path().to_path_buf()),
         runner_id: None,
         prefix_path: Some(prefix),
+        cover_path: None,
         arch: Arch::Win64,
         display: DisplayConfig::default(),
         env_overrides: BTreeMap::new(),
@@ -111,6 +112,7 @@ fn game(path: PathBuf) -> Game {
         working_dir: None,
         runner_id: None,
         prefix_path: None,
+        cover_path: None,
         arch: Arch::Win64,
         display: DisplayConfig::default(),
         env_overrides: BTreeMap::new(),
@@ -145,7 +147,7 @@ async fn save_game_inserts_then_updates() {
     let mut value = game(exe);
     let saved = service
         .clone()
-        .save_game(value.clone(), true)
+        .save_game(value.clone(), true, None, PathBuf::new())
         .await
         .unwrap();
     assert_eq!(saved, value);
@@ -153,7 +155,7 @@ async fn save_game_inserts_then_updates() {
     value.name = "Renamed".into();
     service
         .clone()
-        .save_game(value.clone(), false)
+        .save_game(value.clone(), false, None, PathBuf::new())
         .await
         .unwrap();
     let data = service.load_initial().await.unwrap();
@@ -165,7 +167,12 @@ async fn save_game_rejects_missing_executable() {
     let dir = tempdir().unwrap();
     let service = AppService::open_in_memory().unwrap();
     let value = game(dir.path().join("missing.exe"));
-    assert!(service.save_game(value, true).await.is_err());
+    assert!(
+        service
+            .save_game(value, true, None, PathBuf::new())
+            .await
+            .is_err()
+    );
 }
 
 #[tokio::test]
@@ -180,7 +187,7 @@ async fn saved_game_survives_reopen() {
         let service = AppService::open(&db_path).unwrap();
         service
             .clone()
-            .save_game(value.clone(), true)
+            .save_game(value.clone(), true, None, PathBuf::new())
             .await
             .unwrap();
     }
@@ -266,7 +273,7 @@ async fn deleting_single_use_prefix_clears_game_reference_and_directory() {
     value.prefix_path = Some(prefix.clone());
     service
         .clone()
-        .save_game(value.clone(), true)
+        .save_game(value.clone(), true, None, PathBuf::new())
         .await
         .unwrap();
 
@@ -279,6 +286,7 @@ async fn deleting_single_use_prefix_clears_game_reference_and_directory() {
             },
             HashMap::new(),
             None,
+            dir.path().join("logs"),
         )
         .await
         .unwrap();
@@ -302,7 +310,7 @@ async fn deleting_running_prefix_is_rejected() {
     value.prefix_path = Some(prefix.clone());
     service
         .clone()
-        .save_game(value.clone(), true)
+        .save_game(value.clone(), true, None, PathBuf::new())
         .await
         .unwrap();
 
@@ -315,6 +323,7 @@ async fn deleting_running_prefix_is_rejected() {
             },
             HashMap::from([(value.id, prefix.clone())]),
             None,
+            dir.path().join("logs"),
         )
         .await;
 
@@ -340,8 +349,16 @@ async fn deleting_shared_prefix_is_rejected() {
     a.prefix_path = Some(prefix.clone());
     let mut b = game(exe_b);
     b.prefix_path = Some(prefix.clone());
-    service.clone().save_game(a.clone(), true).await.unwrap();
-    service.clone().save_game(b, true).await.unwrap();
+    service
+        .clone()
+        .save_game(a.clone(), true, None, PathBuf::new())
+        .await
+        .unwrap();
+    service
+        .clone()
+        .save_game(b, true, None, PathBuf::new())
+        .await
+        .unwrap();
 
     let result = service
         .delete(
@@ -351,6 +368,7 @@ async fn deleting_shared_prefix_is_rejected() {
             },
             HashMap::new(),
             None,
+            dir.path().join("logs"),
         )
         .await;
     assert!(result.is_err());
@@ -372,12 +390,21 @@ async fn deleting_referenced_or_default_runner_is_rejected() {
         .unwrap();
     let mut value = game(exe);
     value.runner_id = Some(runner.id);
-    service.clone().save_game(value, true).await.unwrap();
+    service
+        .clone()
+        .save_game(value, true, None, PathBuf::new())
+        .await
+        .unwrap();
 
     assert!(
         service
             .clone()
-            .delete(DeleteTarget::Runner(runner.id), HashMap::new(), None,)
+            .delete(
+                DeleteTarget::Runner(runner.id),
+                HashMap::new(),
+                None,
+                dir.path().join("logs"),
+            )
             .await
             .is_err()
     );
@@ -388,6 +415,7 @@ async fn deleting_referenced_or_default_runner_is_rejected() {
                 DeleteTarget::Runner(default_only.id),
                 HashMap::new(),
                 Some(default_only.id),
+                dir.path().join("logs"),
             )
             .await
             .is_err()
@@ -403,7 +431,7 @@ async fn deleting_game_removes_row_and_rejects_running() {
     let value = game(exe);
     service
         .clone()
-        .save_game(value.clone(), true)
+        .save_game(value.clone(), true, None, PathBuf::new())
         .await
         .unwrap();
 
@@ -412,14 +440,24 @@ async fn deleting_game_removes_row_and_rejects_running() {
     assert!(
         service
             .clone()
-            .delete(DeleteTarget::Game(value.id), running, None)
+            .delete(
+                DeleteTarget::Game(value.id),
+                running,
+                None,
+                dir.path().join("logs"),
+            )
             .await
             .is_err()
     );
 
     service
         .clone()
-        .delete(DeleteTarget::Game(value.id), HashMap::new(), None)
+        .delete(
+            DeleteTarget::Game(value.id),
+            HashMap::new(),
+            None,
+            dir.path().join("logs"),
+        )
         .await
         .unwrap();
     assert!(service.load_initial().await.unwrap().games.is_empty());
@@ -451,6 +489,7 @@ async fn launch_runs_fake_wine_and_touches_last_played() {
         working_dir: Some(dir.path().to_path_buf()),
         runner_id: None,
         prefix_path: Some(prefix),
+        cover_path: None,
         arch: Arch::Win64,
         display: DisplayConfig::default(),
         env_overrides: BTreeMap::new(),
@@ -485,7 +524,11 @@ async fn launch_runs_fake_wine_and_touches_last_played() {
     };
 
     let service = AppService::open_in_memory().unwrap();
-    service.clone().save_game(game.clone(), true).await.unwrap();
+    service
+        .clone()
+        .save_game(game.clone(), true, None, PathBuf::new())
+        .await
+        .unwrap();
 
     let outcome = service.clone().launch_game(request).await.unwrap();
     assert_eq!(outcome.exit_code, Some(7));
@@ -499,7 +542,11 @@ async fn launch_emits_started_then_finished() {
     let _guard = EXEC_LOCK.lock().await;
     let (_dir, game, request) = launch_fixture(RunnerKind::Wine, "#!/bin/sh\nexit 0\n");
     let service = AppService::open_in_memory().unwrap();
-    service.clone().save_game(game.clone(), true).await.unwrap();
+    service
+        .clone()
+        .save_game(game.clone(), true, None, PathBuf::new())
+        .await
+        .unwrap();
 
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
     let outcome = service
@@ -526,7 +573,11 @@ async fn stopping_a_running_game_terminates_it() {
     let _guard = EXEC_LOCK.lock().await;
     let (_dir, game, request) = launch_fixture(RunnerKind::Wine, "#!/bin/sh\nsleep 30\n");
     let service = AppService::open_in_memory().unwrap();
-    service.clone().save_game(game.clone(), true).await.unwrap();
+    service
+        .clone()
+        .save_game(game.clone(), true, None, PathBuf::new())
+        .await
+        .unwrap();
 
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
     let launch = tokio::spawn(service.clone().launch_game_with_events(request, tx));
@@ -587,7 +638,11 @@ async fn stopping_kills_processes_detached_from_the_launcher_group() {
     );
 
     let service = AppService::open_in_memory().unwrap();
-    service.clone().save_game(game.clone(), true).await.unwrap();
+    service
+        .clone()
+        .save_game(game.clone(), true, None, PathBuf::new())
+        .await
+        .unwrap();
 
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
     let launch = tokio::spawn(service.clone().launch_game_with_events(request, tx));

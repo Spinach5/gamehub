@@ -6,6 +6,7 @@ pub struct AppPaths {
     pub data_root: PathBuf,
     pub db_path: PathBuf,
     pub logs_dir: PathBuf,
+    pub covers_dir: PathBuf,
     pub default_prefix_root: PathBuf,
     pub steam_compat_client: PathBuf,
 }
@@ -15,6 +16,7 @@ impl AppPaths {
         Self {
             db_path: data_root.join("gamehub.db"),
             logs_dir: data_root.join("logs"),
+            covers_dir: data_root.join("covers"),
             default_prefix_root: data_root.join("prefixes"),
             steam_compat_client: data_root.join("steam-compat-client"),
             data_root,
@@ -80,6 +82,7 @@ mod tests {
     fn derived_paths_are_stable() {
         let paths = AppPaths::for_root(PathBuf::from("/data/gamehub"));
         assert_eq!(paths.logs_dir, PathBuf::from("/data/gamehub/logs"));
+        assert_eq!(paths.covers_dir, PathBuf::from("/data/gamehub/covers"));
         assert_eq!(
             paths.default_prefix_root,
             PathBuf::from("/data/gamehub/prefixes")

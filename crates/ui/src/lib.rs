@@ -1,6 +1,8 @@
 pub mod app;
 pub mod dialogs;
 pub mod draft;
+pub mod styles;
+pub mod theme;
 pub mod views;
 pub mod widgets;
 
@@ -30,7 +32,7 @@ pub fn run() -> iced::Result {
     let service = AppService::open(&paths.db_path);
 
     iced::application("gamehub", App::update, App::view)
-        .theme(|_| iced::Theme::Dark)
+        .theme(App::theme)
         .subscription(App::subscription)
         .default_font(iced::Font::with_name("Noto Sans CJK SC"))
         .window(iced::window::Settings {
