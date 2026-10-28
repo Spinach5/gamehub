@@ -2,6 +2,45 @@
 
 本文件记录每个实施阶段完成的内容、与规格的偏差以及验证结果。
 
+## v0.5.0 — 界面多语言：简体中文与 English（2026-10-28）
+
+### 完成内容
+
+- 新增内建 i18n 模块 `crates/ui/src/i18n`，语言目录为 `crates/ui/locales/zh-CN.json` 与
+  `en-US.json`（各 271 个 key），编译期以 `include_str!` 嵌入二进制，未引入任何新依赖。
+- 设置页「外观」卡片新增「语言」行，可选 跟随系统 / 简体中文 / English，持久化到 SQLite
+  设置项 `ui_language`，切换即时生效并保存；默认「跟随系统」，按
+  `LANGUAGE → LC_ALL → LC_MESSAGES → LANG` 探测（`zh*` → 简体中文，其余 → English）。
+- 全部界面文案迁入 key：侧边栏与壳层、游戏库、游戏详情、Runner 管理、日志、设置、
+  删除确认弹窗、文件对话框、下拉选项（架构 / 后端 / Gamescope / 显示器 / Override 模式）、
+  时间文案与错误横幅。
+- 应用层错误 23 个变体本地化（`i18n::errors::app_error`）；表单校验错误改为结构化
+  `DraftError { field, kind }` 按当前语言渲染。环境变量名 / DLL 名无效的错误只携带违规名
+  本身，不再把 `LaunchError` 的英文原文塞进已翻译的中文提示里。
+- 复数形式：游戏库副标题与 Runner 占用数以 `*.one` / `*.other` 双 key 表达。
+- 新增守卫测试：两种目录的 key 集合、非空值与占位符集合必须一致；扫描 `crates/ui/src`
+  中 `tr` / `tr_args` / `tr_plural` / `tr_plural_args` 的字面量 key，确认每个 key 在两种
+  目录中都存在（`keys_used_in_source_exist`）。
+- 新增 `docs/i18n.md` 维护指南，说明目录格式、命名空间、新增语言步骤、回退规则与翻译范围。
+
+### 与规格的偏差
+
+- 底层技术错误原文（Wine、sqlite、IO）与日志正文不翻译，只翻译分类标签，与规格一致。
+- 复数只支持 one/other 两种形式；需要更多复数形式的语言（如俄语、阿拉伯语）要先扩展该机制。
+- 设置页环境变量输入框的 `KEY` / `VALUE` 占位符保留为技术性词元，未进目录。
+- 兼容层卡片 DXVK 目录的选择按钮复用 `detail.choose_dxvk_dir`，中文由「选择目录」变为
+  「选择 DXVK 目录」。
+- 英文标签普遍长于中文，侧边栏页脚与路径行（`Wrapping::None` + 56 字符中段截断）在窄窗口
+  下有截断风险，本轮只做静态检查，两种主题下的英文/中文人工走查尚未执行。
+
+### 验证
+
+- `cargo fmt --all -- --check`、`cargo clippy --workspace --all-targets -- -D warnings`：通过。
+- `cargo test --workspace`：270 passed，0 failed，2 ignored。
+- `cargo test -p ui`：67 passed，含目录一致性与源码 key 扫描守卫。
+- 目录对齐检查：zh-CN 与 en-US 各 271 个 key，key 集合相同、均按字母序排列、占位符集合一致。
+- `crates/ui/src/views/settings.rs` 中已无中文字面量（`grep -nP '[\x{4e00}-\x{9fff}]'` 无匹配）。
+
 ## v0.4.1 — 修复中文标签渲染为空（2026-10-27）
 
 ### 完成内容

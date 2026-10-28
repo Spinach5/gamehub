@@ -1,6 +1,5 @@
 use launcher_core::{Arch, DisplayConfig, DllOverride, Game, OverrideMode};
 use std::collections::{BTreeMap, HashSet};
-use std::fmt;
 use std::path::PathBuf;
 use uuid::Uuid;
 
@@ -146,28 +145,124 @@ pub fn apply_args_action(rows: &mut Vec<String>, action: ArgsAction) {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DraftError {
-    pub field: &'static str,
-    pub message: String,
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DraftField {
+    Name,
+    Executable,
+    WorkingDir,
+    Prefix,
+    Resolution,
+    RefreshRate,
+    Env,
+    DllOverride,
 }
 
-impl DraftError {
-    fn new(field: &'static str, message: impl Into<String>) -> Self {
-        Self {
-            field,
-            message: message.into(),
+impl DraftField {
+    fn label(self, lang: crate::i18n::Lang) -> &'static str {
+        match self {
+            Self::Name => crate::i18n::tr(lang, "draft.field.name"),
+            Self::Executable => crate::i18n::tr(lang, "draft.field.executable"),
+            Self::WorkingDir => crate::i18n::tr(lang, "draft.field.working_dir"),
+            Self::Prefix => crate::i18n::tr(lang, "draft.field.prefix"),
+            Self::Resolution => crate::i18n::tr(lang, "draft.field.resolution"),
+            Self::RefreshRate => crate::i18n::tr(lang, "draft.field.refresh_rate"),
+            Self::Env => crate::i18n::tr(lang, "draft.field.env"),
+            Self::DllOverride => crate::i18n::tr(lang, "draft.field.dll"),
         }
     }
 }
 
-impl fmt::Display for DraftError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(formatter, "{}: {}", self.field, self.message)
-    }
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DraftErrorKind {
+    NameEmpty,
+    ExecutableMissing,
+    ExecutableNotAbsolute,
+    WorkingDirNotAbsolute,
+    PrefixNotAbsolute,
+    ResolutionPartial,
+    ResolutionWidthInvalid,
+    ResolutionHeightInvalid,
+    ResolutionZero,
+    RefreshRateInvalid,
+    RefreshRateZero,
+    EnvKeyEmpty,
+    EnvReservedOverride,
+    EnvKeyInvalid { key: String },
+    EnvDuplicate { key: String },
+    DllNameInvalid { name: String },
+    DllDuplicate { name: String },
 }
 
-impl std::error::Error for DraftError {}
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DraftError {
+    pub field: DraftField,
+    pub kind: DraftErrorKind,
+}
+
+impl DraftError {
+    fn new(field: DraftField, kind: DraftErrorKind) -> Self {
+        Self { field, kind }
+    }
+
+    pub fn render(&self, lang: crate::i18n::Lang) -> String {
+        let message = match &self.kind {
+            DraftErrorKind::NameEmpty => crate::i18n::tr(lang, "draft.error.name_empty").to_owned(),
+            DraftErrorKind::ExecutableMissing => {
+                crate::i18n::tr(lang, "draft.error.executable_missing").to_owned()
+            }
+            DraftErrorKind::ExecutableNotAbsolute => {
+                crate::i18n::tr(lang, "draft.error.executable_not_absolute").to_owned()
+            }
+            DraftErrorKind::WorkingDirNotAbsolute => {
+                crate::i18n::tr(lang, "draft.error.working_dir_not_absolute").to_owned()
+            }
+            DraftErrorKind::PrefixNotAbsolute => {
+                crate::i18n::tr(lang, "draft.error.prefix_not_absolute").to_owned()
+            }
+            DraftErrorKind::ResolutionPartial => {
+                crate::i18n::tr(lang, "draft.error.resolution_partial").to_owned()
+            }
+            DraftErrorKind::ResolutionWidthInvalid => {
+                crate::i18n::tr(lang, "draft.error.resolution_width").to_owned()
+            }
+            DraftErrorKind::ResolutionHeightInvalid => {
+                crate::i18n::tr(lang, "draft.error.resolution_height").to_owned()
+            }
+            DraftErrorKind::ResolutionZero => {
+                crate::i18n::tr(lang, "draft.error.resolution_zero").to_owned()
+            }
+            DraftErrorKind::RefreshRateInvalid => {
+                crate::i18n::tr(lang, "draft.error.refresh_rate_invalid").to_owned()
+            }
+            DraftErrorKind::RefreshRateZero => {
+                crate::i18n::tr(lang, "draft.error.refresh_rate_zero").to_owned()
+            }
+            DraftErrorKind::EnvKeyEmpty => {
+                crate::i18n::tr(lang, "draft.error.env_key_empty").to_owned()
+            }
+            DraftErrorKind::EnvReservedOverride => {
+                crate::i18n::tr(lang, "draft.error.env_reserved_override").to_owned()
+            }
+            DraftErrorKind::EnvKeyInvalid { key } => {
+                crate::i18n::tr_args(lang, "draft.error.env_key_invalid", &[("key", key)])
+            }
+            DraftErrorKind::EnvDuplicate { key } => {
+                crate::i18n::tr_args(lang, "draft.error.env_duplicate", &[("key", key)])
+            }
+            DraftErrorKind::DllNameInvalid { name } => {
+                crate::i18n::tr_args(lang, "draft.error.dll_name_invalid", &[("name", name)])
+            }
+            DraftErrorKind::DllDuplicate { name } => {
+                crate::i18n::tr_args(lang, "draft.error.dll_duplicate", &[("name", name)])
+            }
+        };
+        crate::i18n::tr_args(
+            lang,
+            "draft.format",
+            &[("field", self.field.label(lang)), ("message", &message)],
+        )
+    }
+}
 
 fn now_unix() -> i64 {
     std::time::SystemTime::now()
@@ -181,18 +276,28 @@ fn parse_resolution(width: &str, height: &str) -> Result<Option<(u32, u32)>, Dra
     let height = height.trim();
     match (width.is_empty(), height.is_empty()) {
         (true, true) => Ok(None),
-        (true, false) | (false, true) => {
-            Err(DraftError::new("分辨率", "宽和高必须同时填写或同时留空"))
-        }
+        (true, false) | (false, true) => Err(DraftError::new(
+            DraftField::Resolution,
+            DraftErrorKind::ResolutionPartial,
+        )),
         (false, false) => {
-            let width: u32 = width
-                .parse()
-                .map_err(|_| DraftError::new("分辨率", "宽度必须是正整数"))?;
-            let height: u32 = height
-                .parse()
-                .map_err(|_| DraftError::new("分辨率", "高度必须是正整数"))?;
+            let width: u32 = width.parse().map_err(|_| {
+                DraftError::new(
+                    DraftField::Resolution,
+                    DraftErrorKind::ResolutionWidthInvalid,
+                )
+            })?;
+            let height: u32 = height.parse().map_err(|_| {
+                DraftError::new(
+                    DraftField::Resolution,
+                    DraftErrorKind::ResolutionHeightInvalid,
+                )
+            })?;
             if width == 0 || height == 0 {
-                return Err(DraftError::new("分辨率", "宽和高必须大于 0"));
+                return Err(DraftError::new(
+                    DraftField::Resolution,
+                    DraftErrorKind::ResolutionZero,
+                ));
             }
             Ok(Some((width, height)))
         }
@@ -204,11 +309,14 @@ fn parse_refresh(value: &str) -> Result<Option<u32>, DraftError> {
     if value.is_empty() {
         return Ok(None);
     }
-    let rate: u32 = value
-        .parse()
-        .map_err(|_| DraftError::new("刷新率", "必须是正整数"))?;
+    let rate: u32 = value.parse().map_err(|_| {
+        DraftError::new(DraftField::RefreshRate, DraftErrorKind::RefreshRateInvalid)
+    })?;
     if rate == 0 {
-        return Err(DraftError::new("刷新率", "必须大于 0"));
+        return Err(DraftError::new(
+            DraftField::RefreshRate,
+            DraftErrorKind::RefreshRateZero,
+        ));
     }
     Ok(Some(rate))
 }
@@ -230,19 +338,33 @@ pub(crate) fn env_rows_to_map(rows: &[EnvRow]) -> Result<BTreeMap<String, String
             continue;
         }
         if key.is_empty() {
-            return Err(DraftError::new("环境变量", "变量名不能为空"));
+            return Err(DraftError::new(
+                DraftField::Env,
+                DraftErrorKind::EnvKeyEmpty,
+            ));
         }
         if key == "WINEDLLOVERRIDES" {
             return Err(DraftError::new(
-                "环境变量",
-                "WINEDLLOVERRIDES 必须通过结构化 DLL override 配置",
+                DraftField::Env,
+                DraftErrorKind::EnvReservedOverride,
             ));
         }
-        application::validate_env_key(key)
-            .map_err(|error| DraftError::new("环境变量", error.to_string()))?;
+        application::validate_env_key(key).map_err(|_| {
+            DraftError::new(
+                DraftField::Env,
+                DraftErrorKind::EnvKeyInvalid {
+                    key: key.to_string(),
+                },
+            )
+        })?;
         let previous = map.insert(key.to_string(), row.value.clone());
         if previous.is_some() {
-            return Err(DraftError::new("环境变量", format!("变量 {key} 重复")));
+            return Err(DraftError::new(
+                DraftField::Env,
+                DraftErrorKind::EnvDuplicate {
+                    key: key.to_string(),
+                },
+            ));
         }
     }
     Ok(map)
@@ -256,11 +378,18 @@ fn dll_rows_to_overrides(rows: &[DllRow]) -> Result<Vec<DllOverride>, DraftError
         if name.is_empty() {
             continue;
         }
-        application::validate_dll_name(&name)
-            .map_err(|error| DraftError::new("DLL Override", error.to_string()))?;
+        application::validate_dll_name(&name).map_err(|_| {
+            DraftError::new(
+                DraftField::DllOverride,
+                DraftErrorKind::DllNameInvalid { name: name.clone() },
+            )
+        })?;
         let key = name.to_ascii_lowercase();
         if !seen.insert(key) {
-            return Err(DraftError::new("DLL Override", format!("DLL {name} 重复")));
+            return Err(DraftError::new(
+                DraftField::DllOverride,
+                DraftErrorKind::DllDuplicate { name: name.clone() },
+            ));
         }
         overrides.push(DllOverride {
             dll_name: name,
@@ -271,12 +400,12 @@ fn dll_rows_to_overrides(rows: &[DllRow]) -> Result<Vec<DllOverride>, DraftError
 }
 
 impl GameDraft {
-    pub fn new(executable_path: PathBuf) -> Self {
+    pub fn new(executable_path: PathBuf, lang: crate::i18n::Lang) -> Self {
         let name = executable_path
             .file_stem()
             .and_then(|stem| stem.to_str())
             .filter(|stem| !stem.is_empty())
-            .unwrap_or("新游戏")
+            .unwrap_or_else(|| crate::i18n::tr(lang, "draft.default_name"))
             .to_string();
 
         Self {
@@ -377,25 +506,33 @@ impl GameDraft {
     pub fn to_game(&self) -> Result<Game, DraftError> {
         let name = self.name.trim();
         if name.is_empty() {
-            return Err(DraftError::new("名称", "不能为空"));
+            return Err(DraftError::new(DraftField::Name, DraftErrorKind::NameEmpty));
         }
 
-        let executable_path = self
-            .executable_path
-            .clone()
-            .ok_or_else(|| DraftError::new("可执行文件", "未选择"))?;
+        let executable_path = self.executable_path.clone().ok_or_else(|| {
+            DraftError::new(DraftField::Executable, DraftErrorKind::ExecutableMissing)
+        })?;
         if !executable_path.is_absolute() {
-            return Err(DraftError::new("可执行文件", "必须是绝对路径"));
+            return Err(DraftError::new(
+                DraftField::Executable,
+                DraftErrorKind::ExecutableNotAbsolute,
+            ));
         }
 
         if let Some(working_dir) = &self.working_dir {
             if working_dir.as_os_str().is_empty() || !working_dir.is_absolute() {
-                return Err(DraftError::new("工作目录", "必须是绝对路径"));
+                return Err(DraftError::new(
+                    DraftField::WorkingDir,
+                    DraftErrorKind::WorkingDirNotAbsolute,
+                ));
             }
         }
         if let Some(prefix_path) = &self.prefix_path {
             if prefix_path.as_os_str().is_empty() || !prefix_path.is_absolute() {
-                return Err(DraftError::new("Prefix", "必须是绝对路径"));
+                return Err(DraftError::new(
+                    DraftField::Prefix,
+                    DraftErrorKind::PrefixNotAbsolute,
+                ));
             }
         }
 
@@ -468,7 +605,10 @@ mod tests {
 
     #[test]
     fn new_draft_uses_file_stem_as_name() {
-        let draft = GameDraft::new(PathBuf::from("/games/Cyberpunk 2077.exe"));
+        let draft = GameDraft::new(
+            PathBuf::from("/games/Cyberpunk 2077.exe"),
+            &crate::i18n::ZH_CN,
+        );
         assert_eq!(draft.name, "Cyberpunk 2077");
         assert!(draft.is_new);
         assert_eq!(
@@ -730,5 +870,54 @@ mod tests {
         assert_eq!(args, vec!["-skip".to_string()]);
         apply_args_action(&mut args, ArgsAction::Remove(99));
         assert_eq!(args.len(), 1);
+    }
+
+    #[test]
+    fn draft_errors_render_in_both_languages() {
+        use crate::i18n::{EN_US, ZH_CN};
+        let error = DraftError {
+            field: DraftField::Resolution,
+            kind: DraftErrorKind::ResolutionPartial,
+        };
+        assert_eq!(error.render(&ZH_CN), "分辨率：宽和高必须同时填写或同时留空");
+        assert_eq!(
+            error.render(&EN_US),
+            "Resolution: width and height must both be set or both be empty"
+        );
+    }
+
+    #[test]
+    fn duplicate_env_name_is_reported_in_english() {
+        use crate::i18n::EN_US;
+        let rows = vec![
+            EnvRow {
+                key: "A".into(),
+                value: "1".into(),
+            },
+            EnvRow {
+                key: "A".into(),
+                value: "2".into(),
+            },
+        ];
+        let error = env_rows_to_map(&rows).unwrap_err();
+        assert_eq!(
+            error.render(&EN_US),
+            "Environment variables: Duplicate variable A"
+        );
+    }
+
+    #[test]
+    fn invalid_env_key_is_rendered_without_app_layer_text() {
+        use crate::i18n::{EN_US, ZH_CN};
+        let rows = vec![EnvRow {
+            key: "1BAD".into(),
+            value: "1".into(),
+        }];
+        let error = env_rows_to_map(&rows).unwrap_err();
+        assert_eq!(error.render(&ZH_CN), "环境变量：环境变量名无效：1BAD");
+        assert_eq!(
+            error.render(&EN_US),
+            "Environment variables: Invalid environment variable name: 1BAD"
+        );
     }
 }

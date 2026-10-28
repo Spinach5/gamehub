@@ -7,6 +7,7 @@ use iced::widget::{column, container, horizontal_space, opaque, row, text};
 use iced::{Element, Length};
 
 pub fn confirm_delete<'a>(
+    lang: crate::i18n::Lang,
     title: String,
     body: String,
     confirm: Message,
@@ -25,8 +26,8 @@ pub fn confirm_delete<'a>(
                 .wrapping(iced::widget::text::Wrapping::WordOrGlyph),
             row![
                 horizontal_space(),
-                controls::secondary("取消").on_press(cancel),
-                controls::danger("确认删除").on_press(confirm),
+                controls::secondary(crate::i18n::tr(lang, "common.cancel")).on_press(cancel),
+                controls::danger(crate::i18n::tr(lang, "common.confirm_delete")).on_press(confirm),
             ]
             .spacing(8)
             .width(Length::Fill),

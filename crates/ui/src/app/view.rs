@@ -8,7 +8,7 @@ use iced::{Element, Length};
 impl App {
     pub fn view(&self) -> Element<'_, Message> {
         if let Some(fatal) = &self.fatal {
-            return layout::fatal(fatal);
+            return layout::fatal(self.lang, fatal);
         }
 
         let screen: Element<'_, Message> = match self.screen {
@@ -24,7 +24,7 @@ impl App {
             .width(Length::Fill)
             .height(Length::Fill);
         if let Some(error) = &self.error {
-            main = main.push(crate::widgets::error_banner(error));
+            main = main.push(crate::widgets::error_banner(self.lang, error));
         }
         main = main.push(screen);
 
@@ -51,8 +51,9 @@ impl App {
         let mut layers = stack![base];
         if let Some(target) = &self.confirming {
             layers = layers.push(modal::confirm_delete(
+                self.lang,
                 delete_title(self, target),
-                delete_body(target).to_owned(),
+                delete_body(self.lang, target).to_owned(),
                 Message::DeleteConfirmed,
                 Message::CancelDelete,
             ));
@@ -82,7 +83,7 @@ fn sidebar(app: &App) -> Element<'_, Message> {
 
     let footer = layout::faint(format!(
         "{} · {}",
-        session_label(app.session),
+        session_label(app.lang, app.session),
         default_runner_label(app)
     ))
     .size(10);
@@ -94,17 +95,17 @@ fn sidebar(app: &App) -> Element<'_, Message> {
                 .align_y(iced::Alignment::Center),
             iced::widget::vertical_space().height(Length::Fixed(10.0)),
             layout::nav_item(
-                "游戏库",
+                app.tr("nav.library"),
                 active == Screen::Library,
                 Message::Navigate(Screen::Library)
             ),
             layout::nav_item(
-                "Runner 管理",
+                app.tr("nav.runners"),
                 active == Screen::RunnerManager,
                 Message::Navigate(Screen::RunnerManager)
             ),
             layout::nav_item(
-                "设置",
+                app.tr("nav.settings"),
                 active == Screen::Settings,
                 Message::Navigate(Screen::Settings)
             ),
@@ -122,11 +123,11 @@ fn sidebar(app: &App) -> Element<'_, Message> {
     .into()
 }
 
-fn session_label(session: application::SessionType) -> &'static str {
+fn session_label(lang: crate::i18n::Lang, session: application::SessionType) -> &'static str {
     match session {
         application::SessionType::Wayland => "Wayland",
         application::SessionType::X11 => "X11",
-        application::SessionType::Unknown => "未知会话",
+        application::SessionType::Unknown => crate::i18n::tr(lang, "app.session.unknown"),
     }
 }
 
@@ -135,7 +136,7 @@ fn default_runner_label(app: &App) -> &str {
         .default_runner_id
         .and_then(|id| app.runners.iter().find(|runner| runner.id == id))
         .map(|runner| runner.name.as_str())
-        .unwrap_or("未设置默认 Runner")
+        .unwrap_or_else(|| app.tr("launch.no_default_runner"))
 }
 
 fn delete_title(app: &App, target: &DeleteTarget) -> String {
@@ -144,22 +145,25 @@ fn delete_title(app: &App, target: &DeleteTarget) -> String {
             .games
             .iter()
             .find(|game| game.id == *id)
-            .map(|game| format!("删除游戏「{}」？", game.name))
-            .unwrap_or_else(|| "删除游戏？".to_owned()),
+            .map(|game| app.tr_args("delete.title.game", &[("name", &game.name)]))
+            .unwrap_or_else(|| app.tr("delete.title.game_fallback").to_owned()),
         DeleteTarget::Runner(id) => app
             .runners
             .iter()
             .find(|runner| runner.id == *id)
-            .map(|runner| format!("删除 Runner「{}」？", runner.name))
-            .unwrap_or_else(|| "删除 Runner？".to_owned()),
-        DeleteTarget::Prefix { path, .. } => format!("删除 Prefix {}？", path.display()),
+            .map(|runner| app.tr_args("delete.title.runner", &[("name", &runner.name)]))
+            .unwrap_or_else(|| app.tr("delete.title.runner_fallback").to_owned()),
+        DeleteTarget::Prefix { path, .. } => app.tr_args(
+            "delete.title.prefix",
+            &[("path", &path.display().to_string())],
+        ),
     }
 }
 
-fn delete_body(target: &DeleteTarget) -> &'static str {
+fn delete_body(lang: crate::i18n::Lang, target: &DeleteTarget) -> &'static str {
     match target {
-        DeleteTarget::Game(_) => "将同时删除该游戏的配置、日志与封面，此操作不可撤销。",
-        DeleteTarget::Runner(_) => "删除后需要重新导入才能使用，此操作不可撤销。",
-        DeleteTarget::Prefix { .. } => "Prefix 内的游戏存档与运行环境会被删除，此操作不可撤销。",
+        DeleteTarget::Game(_) => crate::i18n::tr(lang, "delete.body.game"),
+        DeleteTarget::Runner(_) => crate::i18n::tr(lang, "delete.body.runner"),
+        DeleteTarget::Prefix { .. } => crate::i18n::tr(lang, "delete.body.prefix"),
     }
 }

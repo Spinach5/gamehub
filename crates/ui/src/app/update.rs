@@ -1,4 +1,4 @@
-use super::{App, DeleteTarget, ErrorNotice, Message, Screen, SettingsAction};
+use super::{App, DeleteTarget, ErrorNotice, Message, NoticeKind, Screen, SettingsAction};
 use application::{LaunchEvent, LaunchRequest, LaunchTuning};
 use iced::Task;
 use std::collections::BTreeMap;
@@ -25,7 +25,7 @@ impl App {
             Message::NewGame => {
                 self.draft = None;
                 self.selected_game = None;
-                crate::dialogs::pick(crate::dialogs::DialogIntent::PickExe)
+                crate::dialogs::pick(crate::dialogs::DialogIntent::PickExe, self.lang)
             }
             Message::Loaded(data) => {
                 self.apply_loaded(data);
@@ -33,7 +33,7 @@ impl App {
             }
             Message::LoadFailed(error) => {
                 self.pending.loading = false;
-                self.error = Some(ErrorNotice::new("加载数据失败").with_detail(error));
+                self.error = Some(ErrorNotice::new(self.tr("app.error.load")).with_detail(error));
                 Task::none()
             }
             Message::Draft(action) => {
@@ -64,7 +64,7 @@ impl App {
                 cover_changed,
                 result,
             } => self.apply_draft_saved(game_id, revision, cover_changed, result),
-            Message::Pick(intent) => crate::dialogs::pick(intent),
+            Message::Pick(intent) => crate::dialogs::pick(intent, self.lang),
             Message::DialogResult { intent, path } => self.apply_dialog_result(intent, path),
             Message::DismissError => {
                 self.error = None;
@@ -79,12 +79,15 @@ impl App {
                     return Task::none();
                 }
                 let Some(service) = self.service.clone() else {
-                    self.error = Some(ErrorNotice::new("数据库不可用"));
+                    self.error = Some(ErrorNotice::new(self.tr("app.error.database_unavailable")));
                     return Task::none();
                 };
                 self.pending.detecting_wine = true;
-                Task::perform(service.detect_and_persist_runners(), |result| {
-                    Message::WineDetected(result.map_err(|error| error.to_string()))
+                let lang = self.lang;
+                Task::perform(service.detect_and_persist_runners(), move |result| {
+                    Message::WineDetected(
+                        result.map_err(|error| crate::i18n::errors::app_error(lang, &error)),
+                    )
                 })
             }
             Message::WineDetected(result) => {
@@ -94,14 +97,16 @@ impl App {
                         self.error = None;
                         if runners.is_empty() {
                             self.error =
-                                Some(ErrorNotice::new("未找到系统 Wine，请确认 wine 在 PATH 中"));
+                                Some(ErrorNotice::new(self.tr("app.error.wine_not_found")));
                         }
                         self.runners = runners;
                         self.runners
                             .sort_by_key(|runner| runner.name.to_lowercase());
                     }
                     Err(error) => {
-                        self.error = Some(ErrorNotice::new("检测 Wine 失败").with_detail(error));
+                        self.error = Some(
+                            ErrorNotice::new(self.tr("app.error.wine_detect")).with_detail(error),
+                        );
                     }
                 }
                 Task::none()
@@ -111,7 +116,7 @@ impl App {
                     return Task::none();
                 }
                 self.pending.importing_proton = true;
-                crate::dialogs::pick(crate::dialogs::DialogIntent::PickProtonDir)
+                crate::dialogs::pick(crate::dialogs::DialogIntent::PickProtonDir, self.lang)
             }
             Message::ProtonImported(result) => {
                 self.pending.importing_proton = false;
@@ -124,7 +129,9 @@ impl App {
                             .sort_by_key(|runner| runner.name.to_lowercase());
                     }
                     Err(error) => {
-                        self.error = Some(ErrorNotice::new("导入 Proton 失败").with_detail(error));
+                        self.error = Some(
+                            ErrorNotice::new(self.tr("app.error.proton_import")).with_detail(error),
+                        );
                     }
                 }
                 Task::none()
@@ -134,14 +141,16 @@ impl App {
                     return Task::none();
                 }
                 let Some(service) = self.service.clone() else {
-                    self.error = Some(ErrorNotice::new("数据库不可用"));
+                    self.error = Some(ErrorNotice::new(self.tr("app.error.database_unavailable")));
                     return Task::none();
                 };
                 self.pending.settings_saving = true;
+                let lang = self.lang;
                 Task::perform(service.save_default_runner(id), move |result| {
                     Message::DefaultRunnerSaved {
                         id,
-                        result: result.map_err(|error| error.to_string()),
+                        result: result
+                            .map_err(|error| crate::i18n::errors::app_error(lang, &error)),
                     }
                 })
             }
@@ -156,8 +165,10 @@ impl App {
                         }
                     }
                     Err(error) => {
-                        self.error =
-                            Some(ErrorNotice::new("保存默认 Runner 失败").with_detail(error));
+                        self.error = Some(
+                            ErrorNotice::new(self.tr("app.error.runner_default_save"))
+                                .with_detail(error),
+                        );
                     }
                 }
                 Task::none()
@@ -168,7 +179,9 @@ impl App {
                     .as_ref()
                     .is_some_and(|draft| draft.id == game_id && draft.is_new)
                 {
-                    self.error = Some(ErrorNotice::new("请先保存游戏，再创建 Prefix"));
+                    self.error = Some(ErrorNotice::new(
+                        self.tr("app.error.save_game_first_prefix"),
+                    ));
                     return Task::none();
                 }
                 let game = match self.game_for_actions(game_id) {
@@ -190,10 +203,12 @@ impl App {
                     .clone()
                     .map(|root| application::DxvkSource { root });
                 self.pending.prefix.insert(game_id);
+                let lang = self.lang;
                 Task::perform(application::create_prefix(plan, dxvk), move |result| {
                     Message::PrefixCreated {
                         game_id,
-                        result: result.map_err(|error| error.to_string()),
+                        result: result
+                            .map_err(|error| crate::i18n::errors::app_error(lang, &error)),
                     }
                 })
             }
@@ -214,7 +229,9 @@ impl App {
                         return self.refresh_prefix_status(game_id);
                     }
                     Err(error) => {
-                        self.error = Some(ErrorNotice::new("创建 Prefix 失败").with_detail(error));
+                        self.error = Some(
+                            ErrorNotice::new(self.tr("app.error.prefix_create")).with_detail(error),
+                        );
                     }
                 }
                 Task::none()
@@ -225,11 +242,11 @@ impl App {
                     .as_ref()
                     .is_some_and(|draft| draft.id == game_id && draft.is_new)
                 {
-                    self.error = Some(ErrorNotice::new("请先保存游戏，再安装 DXVK"));
+                    self.error = Some(ErrorNotice::new(self.tr("app.error.save_game_first_dxvk")));
                     return Task::none();
                 }
                 let Some(dxvk_dir) = self.dxvk_dir.clone() else {
-                    self.error = Some(ErrorNotice::new("请先选择 DXVK 目录"));
+                    self.error = Some(ErrorNotice::new(self.tr("app.error.dxvk_dir_required")));
                     return Task::none();
                 };
                 let game = match self.game_for_actions(game_id) {
@@ -247,18 +264,22 @@ impl App {
                     }
                 };
                 self.pending.dxvk.insert(game_id);
+                let lang = self.lang;
                 Task::perform(
                     application::install_dxvk(plan, application::DxvkSource { root: dxvk_dir }),
                     move |result| Message::DxvkInstalled {
                         game_id,
-                        result: result.map_err(|error| error.to_string()),
+                        result: result
+                            .map_err(|error| crate::i18n::errors::app_error(lang, &error)),
                     },
                 )
             }
             Message::DxvkInstalled { game_id, result } => {
                 self.pending.dxvk.remove(&game_id);
                 if let Err(error) = result {
-                    self.error = Some(ErrorNotice::new("安装 DXVK 失败").with_detail(error));
+                    self.error = Some(
+                        ErrorNotice::new(self.tr("app.error.dxvk_install")).with_detail(error),
+                    );
                 }
                 Task::none()
             }
@@ -308,11 +329,29 @@ impl App {
                             return Task::none();
                         }
                         let Some(service) = self.service.clone() else {
-                            self.error = Some(ErrorNotice::new("数据库不可用"));
+                            self.error =
+                                Some(ErrorNotice::new(self.tr("app.error.database_unavailable")));
                             return Task::none();
                         };
                         self.theme_saving = true;
-                        return save_theme(service, mode);
+                        return save_theme(service, mode, self.lang);
+                    }
+                    SettingsAction::Language(pref) => {
+                        if self.pending.loading {
+                            return Task::none();
+                        }
+                        self.settings.language = pref;
+                        self.lang = pref.resolve();
+                        if self.language_saving {
+                            return Task::none();
+                        }
+                        let Some(service) = self.service.clone() else {
+                            self.error =
+                                Some(ErrorNotice::new(self.tr("app.error.database_unavailable")));
+                            return Task::none();
+                        };
+                        self.language_saving = true;
+                        return save_language(service, pref, self.lang);
                     }
                 }
                 match (affects_prefix, self.selected_game) {
@@ -330,18 +369,25 @@ impl App {
                 let mut values = match self.settings.to_map() {
                     Ok(values) => values,
                     Err(error) => {
-                        self.error = Some(ErrorNotice::new("设置校验失败").with_detail(error));
+                        self.error = Some(
+                            ErrorNotice::form(self.tr("app.error.settings_validation"))
+                                .with_detail(error),
+                        );
                         return Task::none();
                     }
                 };
                 values.remove(application::SETTING_UI_THEME);
+                values.remove(application::SETTING_UI_LANGUAGE);
                 let Some(service) = self.service.clone() else {
-                    self.error = Some(ErrorNotice::new("数据库不可用"));
+                    self.error = Some(ErrorNotice::new(self.tr("app.error.database_unavailable")));
                     return Task::none();
                 };
                 self.pending.settings_saving = true;
-                Task::perform(service.save_settings(values), |result| {
-                    Message::SettingsSaved(result.map_err(|error| error.to_string()))
+                let lang = self.lang;
+                Task::perform(service.save_settings(values), move |result| {
+                    Message::SettingsSaved(
+                        result.map_err(|error| crate::i18n::errors::app_error(lang, &error)),
+                    )
                 })
             }
             Message::SettingsSaved(result) => {
@@ -351,13 +397,16 @@ impl App {
                         if self
                             .error
                             .as_ref()
-                            .is_some_and(|notice| is_form_notice(&notice.title))
+                            .is_some_and(|notice| notice.kind == NoticeKind::Form)
                         {
                             self.error = None;
                         }
                     }
                     Err(error) => {
-                        self.error = Some(ErrorNotice::new("保存设置失败").with_detail(error));
+                        self.error = Some(
+                            ErrorNotice::form(self.tr("app.error.settings_save"))
+                                .with_detail(error),
+                        );
                     }
                 }
                 Task::none()
@@ -369,7 +418,7 @@ impl App {
                         if self
                             .error
                             .as_ref()
-                            .is_some_and(|notice| notice.title == "保存主题失败")
+                            .is_some_and(|notice| notice.kind == NoticeKind::ThemeSave)
                         {
                             self.error = None;
                         }
@@ -378,15 +427,52 @@ impl App {
                                 return Task::none();
                             };
                             self.theme_saving = true;
-                            return save_theme(service, self.settings.theme);
+                            return save_theme(service, self.settings.theme, self.lang);
                         }
                     }
                     Err(error) => {
-                        self.error = Some(ErrorNotice::new("保存主题失败").with_detail(error));
+                        self.error = Some(
+                            ErrorNotice::theme_save(self.tr("app.error.theme_save"))
+                                .with_detail(error),
+                        );
                         if self.settings.theme != mode {
                             if let Some(service) = self.service.clone() {
                                 self.theme_saving = true;
-                                return save_theme(service, self.settings.theme);
+                                return save_theme(service, self.settings.theme, self.lang);
+                            }
+                        }
+                    }
+                }
+                Task::none()
+            }
+            Message::LanguageSaved { pref, result } => {
+                self.language_saving = false;
+                match result {
+                    Ok(()) => {
+                        if self
+                            .error
+                            .as_ref()
+                            .is_some_and(|notice| notice.kind == NoticeKind::LanguageSave)
+                        {
+                            self.error = None;
+                        }
+                        if self.settings.language != pref {
+                            let Some(service) = self.service.clone() else {
+                                return Task::none();
+                            };
+                            self.language_saving = true;
+                            return save_language(service, self.settings.language, self.lang);
+                        }
+                    }
+                    Err(error) => {
+                        self.error = Some(
+                            ErrorNotice::language_save(self.tr("app.error.language_save"))
+                                .with_detail(error),
+                        );
+                        if self.settings.language != pref {
+                            if let Some(service) = self.service.clone() {
+                                self.language_saving = true;
+                                return save_language(service, self.settings.language, self.lang);
                             }
                         }
                     }
@@ -424,19 +510,19 @@ impl App {
                         });
                     if saved.as_deref() != Some(path.as_path()) {
                         self.confirming = None;
-                        self.error = Some(ErrorNotice::new(
-                            "Prefix 变更尚未保存，请先保存游戏后再删除",
-                        ));
+                        self.error =
+                            Some(ErrorNotice::new(self.tr("app.error.prefix_unsaved_delete")));
                         return Task::none();
                     }
                 }
                 let Some(service) = self.service.clone() else {
-                    self.error = Some(ErrorNotice::new("数据库不可用"));
+                    self.error = Some(ErrorNotice::new(self.tr("app.error.database_unavailable")));
                     return Task::none();
                 };
                 self.pending.deleting = true;
                 let running = self.running.clone();
                 let default_runner_id = self.settings.default_runner_id;
+                let lang = self.lang;
                 Task::perform(
                     service.delete(
                         target.clone(),
@@ -446,7 +532,8 @@ impl App {
                     ),
                     move |result| Message::DeleteFinished {
                         target: target.clone(),
-                        result: result.map_err(|error| error.to_string()),
+                        result: result
+                            .map_err(|error| crate::i18n::errors::app_error(lang, &error)),
                     },
                 )
             }
@@ -508,7 +595,8 @@ impl App {
                         }
                     }
                     Err(error) => {
-                        self.error = Some(ErrorNotice::new("删除失败").with_detail(error));
+                        self.error =
+                            Some(ErrorNotice::new(self.tr("app.error.delete")).with_detail(error));
                     }
                 }
                 Task::none()
@@ -522,11 +610,13 @@ impl App {
                     .as_ref()
                     .is_some_and(|draft| draft.id == game_id && draft.is_new)
                 {
-                    self.error = Some(ErrorNotice::new("请先保存游戏，再启动"));
+                    self.error = Some(ErrorNotice::new(
+                        self.tr("app.error.save_game_first_launch"),
+                    ));
                     return Task::none();
                 }
                 if self.running.contains_key(&game_id) {
-                    self.error = Some(ErrorNotice::new("该游戏已在运行"));
+                    self.error = Some(ErrorNotice::new(self.tr("app.error.already_running")));
                     return Task::none();
                 }
                 let game = match self.game_for_actions(game_id) {
@@ -544,12 +634,12 @@ impl App {
                     }
                 };
                 if self.running.values().any(|path| path == &prefix_plan.path) {
-                    self.error = Some(ErrorNotice::new("同一 Prefix 已有游戏在运行，请等待其退出"));
+                    self.error = Some(ErrorNotice::new(self.tr("app.error.prefix_busy")));
                     return Task::none();
                 }
 
                 let Some(service) = self.service.clone() else {
-                    self.error = Some(ErrorNotice::new("数据库不可用"));
+                    self.error = Some(ErrorNotice::new(self.tr("app.error.database_unavailable")));
                     return Task::none();
                 };
                 let global_env = match crate::draft::env_rows_to_map(&self.settings.global_env_rows)
@@ -557,7 +647,8 @@ impl App {
                     Ok(env) => env,
                     Err(error) => {
                         self.error = Some(
-                            ErrorNotice::new("全局环境变量无效").with_detail(error.to_string()),
+                            ErrorNotice::new(self.tr("app.error.global_env_invalid"))
+                                .with_detail(error.render(self.lang)),
                         );
                         return Task::none();
                     }
@@ -585,7 +676,7 @@ impl App {
 
                 self.running.insert(game_id, prefix_plan.path);
                 self.starting.insert(game_id);
-                launch_task(service, request)
+                launch_task(service, request, self.lang)
             }
             Message::LaunchEvent(event) => {
                 match event {
@@ -606,9 +697,9 @@ impl App {
                             }
                         }
                         if !outcome.success && !outcome.stopped {
-                            self.error = Some(ErrorNotice::new(format!(
-                                "游戏异常退出（退出码 {:?}）",
-                                outcome.exit_code
+                            self.error = Some(ErrorNotice::new(self.tr_args(
+                                "launch.exited_with_code",
+                                &[("code", &format!("{:?}", outcome.exit_code))],
                             )));
                         }
                     }
@@ -616,9 +707,17 @@ impl App {
                         self.starting.remove(&game_id);
                         self.running.remove(&game_id);
                         self.stopping.remove(&game_id);
-                        self.error = Some(ErrorNotice::new("启动失败").with_detail(error));
+                        self.error =
+                            Some(ErrorNotice::new(self.tr("launch.failed")).with_detail(error));
                     }
                 }
+                Task::none()
+            }
+            Message::LaunchFailed { game_id, error } => {
+                self.starting.remove(&game_id);
+                self.running.remove(&game_id);
+                self.stopping.remove(&game_id);
+                self.error = Some(ErrorNotice::new(self.tr("launch.failed")).with_detail(error));
                 Task::none()
             }
             Message::Stop(game_id) => {
@@ -626,21 +725,24 @@ impl App {
                     return Task::none();
                 }
                 let Some(service) = self.service.clone() else {
-                    self.error = Some(ErrorNotice::new("数据库不可用"));
+                    self.error = Some(ErrorNotice::new(self.tr("app.error.database_unavailable")));
                     return Task::none();
                 };
                 self.stopping.insert(game_id);
+                let lang = self.lang;
                 Task::perform(service.stop_game(game_id), move |result| {
                     Message::StopFinished {
                         game_id,
-                        result: result.map_err(|error| error.to_string()),
+                        result: result
+                            .map_err(|error| crate::i18n::errors::app_error(lang, &error)),
                     }
                 })
             }
             Message::StopFinished { game_id, result } => {
                 if let Err(error) = result {
                     self.stopping.remove(&game_id);
-                    self.error = Some(ErrorNotice::new("结束游戏失败").with_detail(error));
+                    self.error =
+                        Some(ErrorNotice::new(self.tr("launch.stop_failed")).with_detail(error));
                 }
                 Task::none()
             }
@@ -649,7 +751,9 @@ impl App {
                 match result {
                     Ok(monitors) => self.monitors = monitors,
                     Err(error) => {
-                        self.error = Some(ErrorNotice::new("扫描显示器失败").with_detail(error));
+                        self.error = Some(
+                            ErrorNotice::new(self.tr("app.error.monitors_scan")).with_detail(error),
+                        );
                     }
                 }
                 Task::none()
@@ -684,11 +788,11 @@ impl App {
     }
 }
 
-fn is_form_notice(title: &str) -> bool {
-    matches!(title, "保存设置失败" | "设置校验失败") || title.starts_with("默认 Runner 不存在")
-}
-
-fn save_theme(service: application::AppService, mode: crate::theme::ThemeMode) -> Task<Message> {
+fn save_theme(
+    service: application::AppService,
+    mode: crate::theme::ThemeMode,
+    lang: crate::i18n::Lang,
+) -> Task<Message> {
     let values = BTreeMap::from([(
         application::SETTING_UI_THEME.to_string(),
         Some(mode.as_setting().to_string()),
@@ -696,38 +800,73 @@ fn save_theme(service: application::AppService, mode: crate::theme::ThemeMode) -
     Task::perform(service.save_settings(values), move |result| {
         Message::ThemeSaved {
             mode,
-            result: result.map_err(|error| error.to_string()),
+            result: result.map_err(|error| crate::i18n::errors::app_error(lang, &error)),
         }
     })
 }
 
-fn launch_task(service: application::AppService, request: LaunchRequest) -> Task<Message> {
+fn save_language(
+    service: application::AppService,
+    pref: crate::i18n::LanguagePref,
+    lang: crate::i18n::Lang,
+) -> Task<Message> {
+    let values = BTreeMap::from([(
+        application::SETTING_UI_LANGUAGE.to_string(),
+        Some(pref.as_setting().to_string()),
+    )]);
+    Task::perform(service.save_settings(values), move |result| {
+        Message::LanguageSaved {
+            pref,
+            result: result.map_err(|error| crate::i18n::errors::app_error(lang, &error)),
+        }
+    })
+}
+
+fn launch_task(
+    service: application::AppService,
+    request: LaunchRequest,
+    lang: crate::i18n::Lang,
+) -> Task<Message> {
+    let game_id = request.game.id;
     Task::stream(iced::stream::channel(64, move |mut output| async move {
         use iced::futures::SinkExt;
 
         let (events, mut receiver) = tokio::sync::mpsc::unbounded_channel();
-        tokio::spawn(async move {
-            let _ = service.launch_game_with_events(request, events).await;
-        });
+        let handle =
+            tokio::spawn(async move { service.launch_game_with_events(request, events).await });
 
         while let Some(event) = receiver.recv().await {
-            if output.send(Message::LaunchEvent(event)).await.is_err() {
-                break;
+            if matches!(event, application::LaunchEvent::Failed { .. }) {
+                continue;
             }
+            if output.send(Message::LaunchEvent(event)).await.is_err() {
+                return;
+            }
+        }
+
+        if let Ok(Err(error)) = handle.await {
+            let _ = output
+                .send(Message::LaunchFailed {
+                    game_id,
+                    error: crate::i18n::errors::app_error(lang, &error),
+                })
+                .await;
         }
     }))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::is_form_notice;
-    use crate::app::{App, Message, ServiceError};
+    use crate::app::{App, ErrorNotice, Message, NoticeKind, ServiceError, SettingsAction};
+    use crate::i18n::LanguagePref;
     use application::AppPaths;
     use std::path::PathBuf;
 
     fn app() -> App {
         let paths = AppPaths::for_root(PathBuf::from("/tmp/gamehub-update-test"));
-        let (app, _) = App::new(paths, Err(ServiceError::DatabaseLocked));
+        let (mut app, _) = App::new(paths, Err(ServiceError::DatabaseLocked));
+        app.settings.language = LanguagePref::Fixed(&crate::i18n::ZH_CN);
+        app.lang = &crate::i18n::ZH_CN;
         app
     }
 
@@ -754,13 +893,92 @@ mod tests {
     }
 
     #[test]
-    fn form_notices_are_scoped() {
-        assert!(is_form_notice("保存设置失败"));
-        assert!(is_form_notice("设置校验失败"));
-        assert!(is_form_notice(
-            "默认 Runner 不存在，已重置为未选择（保存设置后生效）"
-        ));
-        assert!(!is_form_notice("保存主题失败"));
-        assert!(!is_form_notice("启动失败"));
+    fn switching_language_updates_app_state() {
+        let mut app = app();
+        app.settings.language = crate::i18n::LanguagePref::Auto;
+        let _ = app.update(Message::Settings(SettingsAction::Language(
+            crate::i18n::LanguagePref::Fixed(&crate::i18n::EN_US),
+        )));
+        assert_eq!(app.lang, &crate::i18n::EN_US);
+        assert_eq!(
+            app.settings.language,
+            crate::i18n::LanguagePref::Fixed(&crate::i18n::EN_US)
+        );
+    }
+
+    #[test]
+    fn language_selection_while_saving_updates_state_without_new_save() {
+        let mut app = app();
+        app.language_saving = true;
+
+        let _ = app.update(Message::Settings(SettingsAction::Language(
+            LanguagePref::Fixed(&crate::i18n::EN_US),
+        )));
+
+        assert_eq!(app.lang, &crate::i18n::EN_US);
+        assert_eq!(
+            app.settings.language,
+            LanguagePref::Fixed(&crate::i18n::EN_US)
+        );
+        assert!(app.language_saving);
+    }
+
+    #[test]
+    fn language_saved_clears_language_notice() {
+        let mut app = app();
+        app.language_saving = true;
+        app.error = Some(ErrorNotice::language_save("x"));
+
+        let _ = app.update(Message::LanguageSaved {
+            pref: app.settings.language,
+            result: Ok(()),
+        });
+
+        assert!(app.error.is_none());
+        assert!(!app.language_saving);
+    }
+
+    #[test]
+    fn stale_language_save_resaves_latest_preference() {
+        let paths = AppPaths::for_root(PathBuf::from("/tmp/gamehub-ui-test"));
+        let service = application::AppService::open_in_memory().expect("in-memory service");
+        let (mut app, _) = App::new(paths, Ok(service));
+        app.settings.language = LanguagePref::Fixed(&crate::i18n::EN_US);
+        app.lang = &crate::i18n::EN_US;
+
+        let _ = app.update(Message::LanguageSaved {
+            pref: LanguagePref::Fixed(&crate::i18n::ZH_CN),
+            result: Ok(()),
+        });
+
+        assert!(app.language_saving);
+    }
+
+    #[test]
+    fn notice_kinds_identify_form_and_theme_errors() {
+        assert_eq!(ErrorNotice::form("x").kind, NoticeKind::Form);
+        assert_eq!(ErrorNotice::theme_save("x").kind, NoticeKind::ThemeSave);
+        assert_eq!(
+            ErrorNotice::language_save("x").kind,
+            NoticeKind::LanguageSave
+        );
+        assert_eq!(ErrorNotice::new("x").kind, NoticeKind::General);
+    }
+
+    #[test]
+    fn launch_failure_clears_state_and_shows_detail() {
+        let mut app = app();
+        let id = uuid::Uuid::new_v4();
+        app.starting.insert(id);
+
+        let _ = app.update(Message::LaunchFailed {
+            game_id: id,
+            error: "Game not found".to_string(),
+        });
+
+        assert!(!app.starting.contains(&id));
+        let notice = app.error.expect("launch failure notice");
+        assert_eq!(notice.title, "启动失败");
+        assert_eq!(notice.detail.as_deref(), Some("Game not found"));
     }
 }

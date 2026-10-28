@@ -2,42 +2,62 @@ use crate::app::{App, Message, SettingsAction};
 use crate::draft::EnvAction;
 use crate::styles;
 use crate::theme::{ThemeMode, font};
-use crate::widgets::{Tone, badges, controls, layout, middle_truncate};
+use crate::widgets::{Choice, Tone, badges, controls, layout, middle_truncate};
 use iced::font::Weight;
 use iced::widget::{column, container, pick_list, row, scrollable, text, text_input};
 use iced::{Element, Length};
 
 pub fn view(app: &App) -> Element<'_, Message> {
     if app.pending.loading {
-        return layout::centered_message("正在加载…");
+        return layout::centered_message(app.tr("common.loading"));
     }
 
     let header = layout::page_header(
-        "设置",
-        "外观、默认兼容层与全局启动选项",
-        controls::primary("保存")
+        app.tr("settings.title"),
+        app.tr("settings.subtitle"),
+        controls::primary(app.tr("common.save"))
             .on_press_maybe((!app.pending.settings_saving).then_some(Message::SaveSettings)),
     );
 
     let appearance = layout::section_card(
-        "外观",
-        Some("切换立即生效并保存".to_owned()),
-        row![
-            layout::muted("主题").size(13).width(Length::Fill),
-            theme_segment(app.settings.theme),
+        app.tr("settings.appearance.title"),
+        Some(app.tr("settings.appearance.hint").to_owned()),
+        column![
+            row![
+                layout::muted(app.tr("settings.theme"))
+                    .size(13)
+                    .width(Length::Fill),
+                theme_segment(app.lang, app.settings.theme),
+            ]
+            .width(Length::Fill)
+            .align_y(iced::Alignment::Center),
+            row![
+                layout::muted(app.tr("settings.language"))
+                    .size(13)
+                    .width(Length::Fill),
+                pick_list(
+                    language_choices(app.lang),
+                    Some(language_choice(app.lang, app.settings.language)),
+                    |choice| Message::Settings(SettingsAction::Language(choice.value)),
+                )
+                .style(styles::pick_list)
+                .menu_style(styles::menu),
+            ]
+            .width(Length::Fill)
+            .align_y(iced::Alignment::Center),
         ]
-        .width(Length::Fill)
-        .align_y(iced::Alignment::Center),
+        .spacing(10)
+        .width(Length::Fill),
     );
 
     let default_runner = layout::section_card(
-        "默认 Runner",
-        Some("未单独指定 Runner 的游戏会使用它".to_owned()),
+        app.tr("settings.default_runner.title"),
+        Some(app.tr("settings.default_runner.hint").to_owned()),
         pick_list(
-            crate::widgets::runner_choices(&app.runners, "无默认（使用游戏级选择）"),
+            crate::widgets::runner_choices(&app.runners, app.tr("choices.runner.none")),
             Some(crate::widgets::runner_choice(
                 &app.runners,
-                "无默认（使用游戏级选择）",
+                app.tr("choices.runner.none"),
                 app.settings.default_runner_id,
             )),
             |choice| Message::Settings(SettingsAction::DefaultRunner(choice.value)),
@@ -47,8 +67,8 @@ pub fn view(app: &App) -> Element<'_, Message> {
     );
 
     let prefix_root = layout::section_card(
-        "Prefix 根目录",
-        Some("新建 Prefix 的默认父目录".to_owned()),
+        app.tr("settings.prefix_root.title"),
+        Some(app.tr("settings.prefix_root.hint").to_owned()),
         row![
             layout::faint(middle_truncate(
                 &app.settings.prefix_root.display().to_string(),
@@ -58,7 +78,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
             .width(Length::Fill)
             .height(Length::Fixed(16.0))
             .wrapping(iced::widget::text::Wrapping::None),
-            controls::secondary_small("选择目录")
+            controls::secondary_small(app.tr("settings.prefix_root.choose"))
                 .on_press(Message::Pick(crate::dialogs::DialogIntent::PickPrefixRoot)),
         ]
         .spacing(8)
@@ -88,7 +108,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
     .into()
 }
 
-fn theme_segment<'a>(selected: ThemeMode) -> Element<'a, Message> {
+fn theme_segment<'a>(lang: crate::i18n::Lang, selected: ThemeMode) -> Element<'a, Message> {
     let item = |mode: ThemeMode| {
         let active = selected == mode;
         let style: fn(&iced::Theme, iced::widget::button::Status) -> iced::widget::button::Style =
@@ -98,7 +118,7 @@ fn theme_segment<'a>(selected: ThemeMode) -> Element<'a, Message> {
                 styles::segment
             };
 
-        iced::widget::button(text(mode.label()).size(12).font(font(if active {
+        iced::widget::button(text(mode.label(lang)).size(12).font(font(if active {
             Weight::Semibold
         } else {
             Weight::Normal
@@ -112,6 +132,30 @@ fn theme_segment<'a>(selected: ThemeMode) -> Element<'a, Message> {
         .padding(2)
         .style(styles::segment_track)
         .into()
+}
+
+fn language_choices(lang: crate::i18n::Lang) -> Vec<Choice<crate::i18n::LanguagePref>> {
+    use crate::i18n::{LANGUAGES, LanguagePref};
+    std::iter::once(LanguagePref::Auto)
+        .chain(LANGUAGES.iter().map(LanguagePref::Fixed))
+        .map(|pref| Choice::new(pref, language_label(lang, pref)))
+        .collect()
+}
+
+fn language_choice(
+    lang: crate::i18n::Lang,
+    pref: crate::i18n::LanguagePref,
+) -> Choice<crate::i18n::LanguagePref> {
+    Choice::new(pref, language_label(lang, pref))
+}
+
+fn language_label(lang: crate::i18n::Lang, pref: crate::i18n::LanguagePref) -> String {
+    match pref {
+        crate::i18n::LanguagePref::Auto => {
+            crate::i18n::tr(lang, "settings.language.auto").to_owned()
+        }
+        crate::i18n::LanguagePref::Fixed(language) => language.native_name.to_owned(),
+    }
 }
 
 fn global_env_card(app: &App) -> Element<'_, Message> {
@@ -133,9 +177,9 @@ fn global_env_card(app: &App) -> Element<'_, Message> {
                         )))
                         .style(styles::text_input)
                         .width(Length::FillPortion(3)),
-                    controls::quiet_small("删除").on_press(Message::Settings(SettingsAction::Env(
-                        EnvAction::Remove(index)
-                    ))),
+                    controls::quiet_small(app.tr("common.delete")).on_press(Message::Settings(
+                        SettingsAction::Env(EnvAction::Remove(index))
+                    )),
                 ]
                 .spacing(8)
                 .width(Length::Fill)
@@ -145,12 +189,12 @@ fn global_env_card(app: &App) -> Element<'_, Message> {
 
     rows = rows
         .push(
-            controls::secondary_small("添加变量")
+            controls::secondary_small(app.tr("settings.global_env.add"))
                 .on_press(Message::Settings(SettingsAction::Env(EnvAction::Add))),
         )
-        .push(layout::faint("WINEDLLOVERRIDES 请使用游戏级结构化 DLL Override，不要手填").size(11));
+        .push(layout::faint(app.tr("settings.global_env.override_hint")).size(11));
 
-    layout::section_card("全局环境变量", None, rows)
+    layout::section_card(app.tr("settings.global_env.title"), None, rows)
 }
 
 fn compatibility_card(app: &App) -> Element<'_, Message> {
@@ -159,45 +203,45 @@ fn compatibility_card(app: &App) -> Element<'_, Message> {
         .dxvk_nvapi_source
         .as_deref()
         .map(|path| middle_truncate(&path.display().to_string(), 56))
-        .unwrap_or_else(|| "未选择".to_owned());
+        .unwrap_or_else(|| app.tr("common.none").to_owned());
     let mut content = column![
         controls::switch_row(
-            "启用 Esync",
-            "减少同步开销（部分旧游戏可能不兼容）",
+            app.tr("settings.esync"),
+            app.tr("settings.esync.hint"),
             app.settings.enable_esync,
             |value| Message::Settings(SettingsAction::EnableEsync(value)),
         ),
         controls::switch_row(
-            "启用 Fsync",
-            "减少文件系统同步开销",
+            app.tr("settings.fsync"),
+            app.tr("settings.fsync.hint"),
             app.settings.enable_fsync,
             |value| Message::Settings(SettingsAction::EnableFsync(value)),
         ),
         controls::switch_row(
-            "启用 MangoHud",
+            app.tr("settings.mangohud"),
             match &app.mangohud_path {
-                Some(_) => "启动时叠加性能监控",
-                None => "未检测到 mangohud，启用后启动会被拒绝",
+                Some(_) => app.tr("settings.mangohud.hint"),
+                None => app.tr("settings.mangohud.missing"),
             },
             app.settings.enable_mangohud,
             |value| Message::Settings(SettingsAction::EnableMangoHud(value)),
         ),
         controls::switch_row(
-            "自动安装并更新 DXVK-NVAPI",
-            "Wine 游戏启动前检查并更新",
+            app.tr("settings.dxvk_auto"),
+            app.tr("settings.dxvk_auto.hint"),
             app.settings.auto_install_dxvk_nvapi,
             |value| Message::Settings(SettingsAction::AutoInstallDxvkNvapi(value)),
         ),
         row![
-            layout::faint(format!("DXVK-NVAPI 目录：{source}"))
+            layout::faint(app.tr_args("settings.dxvk_dir", &[("path", source.as_str())]))
                 .size(11)
                 .width(Length::Fill)
                 .height(Length::Fixed(14.0))
                 .wrapping(iced::widget::text::Wrapping::None),
-            controls::secondary_small("选择目录").on_press(Message::Pick(
+            controls::secondary_small(app.tr("detail.choose_dxvk_dir")).on_press(Message::Pick(
                 crate::dialogs::DialogIntent::PickDxvkNvapiDir
             )),
-            controls::quiet_small("清除").on_press_maybe(
+            controls::quiet_small(app.tr("common.clear")).on_press_maybe(
                 app.settings
                     .dxvk_nvapi_source
                     .is_some()
@@ -214,9 +258,8 @@ fn compatibility_card(app: &App) -> Element<'_, Message> {
     if app.settings.auto_install_dxvk_nvapi && app.settings.dxvk_nvapi_source.is_none() {
         content = content.push(
             row![
-                badges::badge("需要配置", Tone::Warning),
-                layout::faint("已启用自动安装，但未选择 DXVK-NVAPI 目录；Wine 游戏启动会失败")
-                    .size(11),
+                badges::badge(app.tr("settings.dxvk_missing.badge"), Tone::Warning),
+                layout::faint(app.tr("settings.dxvk_missing.hint")).size(11),
             ]
             .spacing(8)
             .align_y(iced::Alignment::Center),
@@ -224,11 +267,11 @@ fn compatibility_card(app: &App) -> Element<'_, Message> {
     }
 
     if let Some(path) = &app.mangohud_path {
+        let detected = middle_truncate(&path.display().to_string(), 56);
         content = content.push(
-            layout::faint(format!(
-                "已检测到 MangoHud：{}",
-                middle_truncate(&path.display().to_string(), 56)
-            ))
+            layout::faint(
+                app.tr_args("settings.mangohud.detected", &[("path", detected.as_str())]),
+            )
             .size(11)
             .width(Length::Fill)
             .height(Length::Fixed(14.0))
@@ -236,5 +279,5 @@ fn compatibility_card(app: &App) -> Element<'_, Message> {
         );
     }
 
-    layout::section_card("兼容层增强", None, content)
+    layout::section_card(app.tr("settings.compat.title"), None, content)
 }

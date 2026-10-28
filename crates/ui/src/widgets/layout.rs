@@ -160,10 +160,12 @@ pub fn centered_message(message: &str) -> Element<'_, Message> {
         .into()
 }
 
-pub fn fatal(message: &str) -> Element<'_, Message> {
+pub fn fatal(lang: crate::i18n::Lang, message: &str) -> Element<'_, Message> {
     let card = container(
         iced::widget::column![
-            text("gamehub 无法启动").font(font(Weight::Bold)).size(24),
+            text(crate::i18n::tr(lang, "app.fatal.title"))
+                .font(font(Weight::Bold))
+                .size(24),
             muted(message.to_owned())
                 .size(13)
                 .width(Length::Fill)

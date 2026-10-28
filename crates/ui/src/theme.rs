@@ -66,10 +66,10 @@ impl ThemeMode {
         }
     }
 
-    pub const fn label(self) -> &'static str {
+    pub fn label(self, lang: crate::i18n::Lang) -> &'static str {
         match self {
-            Self::Light => "浅色",
-            Self::Dark => "深色",
+            Self::Light => crate::i18n::tr(lang, "settings.theme.light"),
+            Self::Dark => crate::i18n::tr(lang, "settings.theme.dark"),
         }
     }
 

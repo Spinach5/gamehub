@@ -3,6 +3,7 @@ mod update;
 mod view;
 
 use crate::draft::{EnvRow, GameDraft};
+use crate::i18n::{self, Lang, LanguagePref};
 use crate::theme::ThemeMode;
 use application::{
     AppPaths, AppService, Game, MonitorOutput, PrefixPlan, PrefixStatus, Runner, SessionType,
@@ -17,7 +18,7 @@ pub use application::{
     AppError as ServiceError, DeleteTarget, LaunchOutcome, SETTING_AUTO_INSTALL_DXVK_NVAPI,
     SETTING_DEFAULT_RUNNER_ID, SETTING_DXVK_NVAPI_SOURCE, SETTING_ENABLE_ESYNC,
     SETTING_ENABLE_FSYNC, SETTING_ENABLE_MANGOHUD, SETTING_GLOBAL_ENV, SETTING_PREFIX_ROOT,
-    SETTING_UI_THEME,
+    SETTING_UI_LANGUAGE, SETTING_UI_THEME,
 };
 pub use message::{Message, SettingsAction};
 
@@ -32,15 +33,42 @@ pub enum Screen {
     Logs,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum NoticeKind {
+    #[default]
+    General,
+    Form,
+    ThemeSave,
+    LanguageSave,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ErrorNotice {
+    pub kind: NoticeKind,
     pub title: String,
     pub detail: Option<String>,
 }
 
 impl ErrorNotice {
     pub fn new(title: impl Into<String>) -> Self {
+        Self::with_kind(NoticeKind::General, title)
+    }
+
+    pub fn form(title: impl Into<String>) -> Self {
+        Self::with_kind(NoticeKind::Form, title)
+    }
+
+    pub fn theme_save(title: impl Into<String>) -> Self {
+        Self::with_kind(NoticeKind::ThemeSave, title)
+    }
+
+    pub fn language_save(title: impl Into<String>) -> Self {
+        Self::with_kind(NoticeKind::LanguageSave, title)
+    }
+
+    fn with_kind(kind: NoticeKind, title: impl Into<String>) -> Self {
         Self {
+            kind,
             title: title.into(),
             detail: None,
         }
@@ -63,14 +91,24 @@ pub struct SettingsState {
     pub auto_install_dxvk_nvapi: bool,
     pub dxvk_nvapi_source: Option<PathBuf>,
     pub theme: ThemeMode,
+    pub language: LanguagePref,
 }
 
-fn parse_bool(map: &BTreeMap<String, String>, key: &str, default: bool) -> Result<bool, String> {
+fn parse_bool(
+    map: &BTreeMap<String, String>,
+    key: &str,
+    default: bool,
+    lang: Lang,
+) -> Result<bool, String> {
     match map.get(key).map(String::as_str) {
         None => Ok(default),
         Some("true" | "1") => Ok(true),
         Some("false" | "0") => Ok(false),
-        Some(_) => Err(format!("{key} 必须是 true/false 或 1/0")),
+        Some(_) => Err(i18n::tr_args(
+            lang,
+            "settings.error.bad_bool",
+            &[("key", key)],
+        )),
     }
 }
 
@@ -86,6 +124,7 @@ impl SettingsState {
             auto_install_dxvk_nvapi: false,
             dxvk_nvapi_source: None,
             theme: ThemeMode::Light,
+            language: LanguagePref::Auto,
         }
     }
 
@@ -93,32 +132,40 @@ impl SettingsState {
         map: &BTreeMap<String, String>,
         default_prefix_root: &Path,
     ) -> Result<Self, String> {
+        let pref = LanguagePref::from_setting(map.get(SETTING_UI_LANGUAGE).map(String::as_str));
+        let lang = pref.resolve();
         let global_env: BTreeMap<String, String> = match map.get(SETTING_GLOBAL_ENV) {
-            Some(raw) => serde_json::from_str(raw)
-                .map_err(|error| format!("global_env 不是合法的 JSON 对象: {error}"))?,
+            Some(raw) => serde_json::from_str(raw).map_err(|error| {
+                i18n::tr_args(
+                    lang,
+                    "settings.error.global_env_json",
+                    &[("error", &error.to_string())],
+                )
+            })?,
             None => BTreeMap::new(),
         };
 
         if global_env.contains_key("WINEDLLOVERRIDES") {
-            return Err("global_env 不能包含 WINEDLLOVERRIDES，请使用结构化 DLL override".into());
+            return Err(i18n::tr(lang, "settings.error.global_env_override").into());
         }
         for key in global_env.keys() {
             validate_env_key(key).map_err(|error| error.to_string())?;
         }
 
-        let default_runner_id = match map.get(SETTING_DEFAULT_RUNNER_ID) {
-            Some(raw) => Some(
-                Uuid::parse_str(raw).map_err(|_| "default_runner_id 不是合法 UUID".to_string())?,
-            ),
-            None => None,
-        };
+        let default_runner_id =
+            match map.get(SETTING_DEFAULT_RUNNER_ID) {
+                Some(raw) => Some(Uuid::parse_str(raw).map_err(|_| {
+                    i18n::tr(lang, "settings.error.default_runner_uuid").to_string()
+                })?),
+                None => None,
+            };
 
         let prefix_root = map
             .get(SETTING_PREFIX_ROOT)
             .map(PathBuf::from)
             .unwrap_or_else(|| default_prefix_root.to_path_buf());
         if !prefix_root.is_absolute() {
-            return Err("prefix_root 必须是绝对路径".into());
+            return Err(i18n::tr(lang, "settings.error.prefix_root_absolute").into());
         }
 
         let global_env_rows = global_env
@@ -133,33 +180,40 @@ impl SettingsState {
             global_env_rows,
             default_runner_id,
             prefix_root,
-            enable_esync: parse_bool(map, SETTING_ENABLE_ESYNC, true)?,
-            enable_fsync: parse_bool(map, SETTING_ENABLE_FSYNC, true)?,
-            enable_mangohud: parse_bool(map, SETTING_ENABLE_MANGOHUD, false)?,
-            auto_install_dxvk_nvapi: parse_bool(map, SETTING_AUTO_INSTALL_DXVK_NVAPI, false)?,
+            enable_esync: parse_bool(map, SETTING_ENABLE_ESYNC, true, lang)?,
+            enable_fsync: parse_bool(map, SETTING_ENABLE_FSYNC, true, lang)?,
+            enable_mangohud: parse_bool(map, SETTING_ENABLE_MANGOHUD, false, lang)?,
+            auto_install_dxvk_nvapi: parse_bool(map, SETTING_AUTO_INSTALL_DXVK_NVAPI, false, lang)?,
             dxvk_nvapi_source: map
                 .get(SETTING_DXVK_NVAPI_SOURCE)
                 .filter(|value| !value.is_empty())
                 .map(PathBuf::from),
             theme: ThemeMode::from_setting(map.get(SETTING_UI_THEME).map(String::as_str)),
+            language: pref,
         })
     }
 
     pub fn to_map(&self) -> Result<BTreeMap<String, Option<String>>, String> {
+        let lang = self.language.resolve();
         if !self.prefix_root.is_absolute() {
-            return Err("prefix_root 必须是绝对路径".into());
+            return Err(i18n::tr(lang, "settings.error.prefix_root_absolute").into());
         }
         let env = crate::draft::env_rows_to_map(&self.global_env_rows)
-            .map_err(|error| error.to_string())?;
-        let global_env = serde_json::to_string(&env)
-            .map_err(|error| format!("global_env 序列化失败: {error}"))?;
+            .map_err(|error| error.render(lang))?;
+        let global_env = serde_json::to_string(&env).map_err(|error| {
+            i18n::tr_args(
+                lang,
+                "settings.error.global_env_serialize",
+                &[("error", &error.to_string())],
+            )
+        })?;
 
         let mut map = BTreeMap::new();
         map.insert(SETTING_GLOBAL_ENV.to_string(), Some(global_env));
         let prefix_root = self
             .prefix_root
             .to_str()
-            .ok_or_else(|| "prefix_root 不是 UTF-8 路径".to_string())?
+            .ok_or_else(|| i18n::tr(lang, "settings.error.prefix_root_utf8").to_string())?
             .to_string();
         map.insert(SETTING_PREFIX_ROOT.to_string(), Some(prefix_root));
         map.insert(
@@ -189,13 +243,17 @@ impl SettingsState {
                 .map(|path| {
                     path.to_str()
                         .map(str::to_string)
-                        .ok_or_else(|| "DXVK-NVAPI 目录不是 UTF-8 路径".to_string())
+                        .ok_or_else(|| i18n::tr(lang, "settings.error.dxvk_dir_utf8").to_string())
                 })
                 .transpose()?,
         );
         map.insert(
             SETTING_UI_THEME.to_string(),
             Some(self.theme.as_setting().to_string()),
+        );
+        map.insert(
+            SETTING_UI_LANGUAGE.to_string(),
+            Some(self.language.as_setting().to_string()),
         );
         Ok(map)
     }
@@ -222,6 +280,7 @@ pub struct App {
     pub runners: Vec<Runner>,
     pub settings: SettingsState,
     pub theme_saving: bool,
+    pub language_saving: bool,
     pub selected_game: Option<Uuid>,
     pub draft: Option<GameDraft>,
     pub draft_revision: u64,
@@ -242,6 +301,7 @@ pub struct App {
     pub error: Option<ErrorNotice>,
     pub cover_handles: HashMap<Uuid, iced::widget::image::Handle>,
     pub window_width: f32,
+    pub lang: Lang,
 }
 
 impl App {
@@ -250,6 +310,7 @@ impl App {
         service: Result<AppService, ServiceError>,
     ) -> (Self, iced::Task<Message>) {
         let settings = SettingsState::default_for(&paths.default_prefix_root);
+        let lang = settings.language.resolve();
         let mut app = Self {
             paths: paths.clone(),
             service: None,
@@ -259,6 +320,7 @@ impl App {
             runners: Vec::new(),
             settings,
             theme_saving: false,
+            language_saving: false,
             selected_game: None,
             draft: None,
             draft_revision: 0,
@@ -282,23 +344,33 @@ impl App {
             error: None,
             cover_handles: HashMap::new(),
             window_width: 1180.0,
+            lang,
         };
 
         match service {
             Ok(service) => {
                 let task =
-                    iced::Task::perform(service.clone().load_initial(), |result| match result {
-                        Ok(data) => Message::Loaded(data),
-                        Err(error) => Message::LoadFailed(error.to_string()),
-                    });
+                    iced::Task::perform(
+                        service.clone().load_initial(),
+                        move |result| match result {
+                            Ok(data) => Message::Loaded(data),
+                            Err(error) => {
+                                Message::LoadFailed(crate::i18n::errors::app_error(lang, &error))
+                            }
+                        },
+                    );
                 app.service = Some(service);
                 (app, task)
             }
             Err(error) => {
                 app.pending.loading = false;
-                app.fatal = Some(format!(
-                    "无法打开数据库 {}: {error}",
-                    app.paths.db_path.display()
+                app.fatal = Some(i18n::tr_args(
+                    lang,
+                    "app.fatal.database",
+                    &[
+                        ("path", &app.paths.db_path.display().to_string()),
+                        ("error", &crate::i18n::errors::app_error(lang, &error)),
+                    ],
                 ));
                 (app, iced::Task::none())
             }
@@ -315,10 +387,21 @@ impl App {
         self.mangohud_path = data.mangohud_path;
 
         match SettingsState::from_map(&data.settings_map, &self.paths.default_prefix_root) {
-            Ok(settings) => self.settings = settings,
+            Ok(settings) => {
+                self.lang = settings.language.resolve();
+                self.settings = settings;
+            }
             Err(error) => {
+                let language = LanguagePref::from_setting(
+                    data.settings_map
+                        .get(SETTING_UI_LANGUAGE)
+                        .map(String::as_str),
+                );
                 self.settings = SettingsState::default_for(&self.paths.default_prefix_root);
-                self.error = Some(ErrorNotice::new("设置读取失败").with_detail(error));
+                self.settings.language = language;
+                self.lang = language.resolve();
+                self.error =
+                    Some(ErrorNotice::form(self.tr("app.error.settings_load")).with_detail(error));
             }
         }
 
@@ -328,8 +411,8 @@ impl App {
             .filter(|id| !self.runners.iter().any(|runner| runner.id == *id))
         {
             self.settings.default_runner_id = None;
-            self.error = Some(ErrorNotice::new(
-                "默认 Runner 不存在，已重置为未选择（保存设置后生效）",
+            self.error = Some(ErrorNotice::form(
+                self.tr("app.warning.default_runner_missing"),
             ));
             tracing::warn!(%id, "default runner is missing");
         }
@@ -376,12 +459,15 @@ impl App {
         let game = match draft.to_game() {
             Ok(game) => game,
             Err(error) => {
-                self.error = Some(ErrorNotice::new("表单校验失败").with_detail(error.to_string()));
+                self.error = Some(
+                    ErrorNotice::form(self.tr("app.error.form_validation"))
+                        .with_detail(error.render(self.lang)),
+                );
                 return iced::Task::none();
             }
         };
         let Some(service) = self.service.clone() else {
-            self.error = Some(ErrorNotice::new("数据库不可用"));
+            self.error = Some(ErrorNotice::new(self.tr("app.error.database_unavailable")));
             return iced::Task::none();
         };
 
@@ -390,13 +476,14 @@ impl App {
         let revision = self.draft_revision;
         let cover_source = draft.cover_source.clone();
         let covers_dir = self.paths.covers_dir.clone();
+        let lang = self.lang;
         iced::Task::perform(
             service.save_game(game, draft.is_new, cover_source, covers_dir),
             move |result| Message::DraftSaved {
                 game_id,
                 revision,
                 cover_changed,
-                result: result.map_err(|error| error.to_string()),
+                result: result.map_err(|error| crate::i18n::errors::app_error(lang, &error)),
             },
         )
     }
@@ -458,7 +545,8 @@ impl App {
                 let current = self.draft.as_ref().is_some_and(|draft| draft.id == game_id)
                     && self.draft_revision == revision;
                 if current {
-                    self.error = Some(ErrorNotice::new("保存失败").with_detail(error));
+                    self.error =
+                        Some(ErrorNotice::new(self.tr("app.error.save")).with_detail(error));
                 }
             }
         }
@@ -478,7 +566,7 @@ impl App {
                     if let Some(draft) = &mut self.draft {
                         draft.executable_path = Some(path);
                     } else {
-                        self.draft = Some(GameDraft::new(path));
+                        self.draft = Some(GameDraft::new(path, self.lang));
                         self.selected_game = None;
                         self.screen = Screen::GameDetail;
                     }
@@ -495,8 +583,12 @@ impl App {
                 if let Some(path) = path {
                     if let Some(service) = self.service.clone() {
                         self.pending.importing_proton = true;
-                        return iced::Task::perform(service.import_proton(path), |result| {
-                            Message::ProtonImported(result.map_err(|error| error.to_string()))
+                        let lang = self.lang;
+                        return iced::Task::perform(service.import_proton(path), move |result| {
+                            Message::ProtonImported(
+                                result
+                                    .map_err(|error| crate::i18n::errors::app_error(lang, &error)),
+                            )
                         });
                     }
                 }
@@ -547,14 +639,14 @@ impl App {
     fn game_for_actions(&self, game_id: Uuid) -> Result<Game, String> {
         if let Some(draft) = &self.draft {
             if draft.id == game_id {
-                return draft.to_game().map_err(|error| error.to_string());
+                return draft.to_game().map_err(|error| error.render(self.lang));
             }
         }
         self.games
             .iter()
             .find(|game| game.id == game_id)
             .cloned()
-            .ok_or_else(|| "游戏不存在".to_string())
+            .ok_or_else(|| self.tr("errors.game_not_found").to_string())
     }
 
     fn prefix_plan_for(&self, game: &Game) -> Result<PrefixPlan, ErrorNotice> {
@@ -565,7 +657,10 @@ impl App {
             &self.settings.prefix_root,
             self.paths.steam_compat_client.clone(),
         )
-        .map_err(|error| ErrorNotice::new("Runner 不可用").with_detail(error.to_string()))
+        .map_err(|error| {
+            ErrorNotice::new(self.tr("launch.runner_unavailable"))
+                .with_detail(crate::i18n::errors::app_error(self.lang, &error))
+        })
     }
 
     fn refresh_prefix_status(&self, game_id: Uuid) -> iced::Task<Message> {
@@ -595,14 +690,36 @@ impl App {
         self.settings.theme.theme()
     }
 
+    pub fn tr(&self, key: &'static str) -> &'static str {
+        i18n::tr(self.lang, key)
+    }
+
+    pub fn tr_args(&self, key: &'static str, args: &[(&str, &str)]) -> String {
+        i18n::tr_args(self.lang, key, args)
+    }
+
+    pub fn tr_plural(&self, one: &'static str, other: &'static str, n: u64) -> &'static str {
+        i18n::tr_plural(self.lang, one, other, n)
+    }
+
+    pub fn tr_plural_args(
+        &self,
+        one: &'static str,
+        other: &'static str,
+        n: u64,
+        args: &[(&str, &str)],
+    ) -> String {
+        i18n::tr_plural_args(self.lang, one, other, n, args)
+    }
+
     pub fn launch_state_label(&self, game_id: Uuid) -> Option<&'static str> {
         if self.starting.contains(&game_id) {
-            Some("启动中")
+            Some(self.tr("launch.state.starting"))
         } else if self.running.contains_key(&game_id) {
             if self.stopping.contains(&game_id) {
-                Some("结束中")
+                Some(self.tr("launch.state.stopping"))
             } else {
-                Some("游玩")
+                Some(self.tr("launch.state.running"))
             }
         } else {
             None
@@ -613,8 +730,11 @@ impl App {
         let Some(service) = self.service.clone() else {
             return iced::Task::none();
         };
-        iced::Task::perform(service.list_monitors(), |result| {
-            Message::MonitorsLoaded(result.map_err(|error| error.to_string()))
+        let lang = self.lang;
+        iced::Task::perform(service.list_monitors(), move |result| {
+            Message::MonitorsLoaded(
+                result.map_err(|error| crate::i18n::errors::app_error(lang, &error)),
+            )
         })
     }
 
@@ -673,7 +793,9 @@ mod tests {
 
     fn app() -> App {
         let paths = AppPaths::for_root(PathBuf::from("/tmp/gamehub-ui-test"));
-        let (app, _) = App::new(paths, Err(ServiceError::DatabaseLocked));
+        let (mut app, _) = App::new(paths, Err(ServiceError::DatabaseLocked));
+        app.settings.language = LanguagePref::Fixed(&crate::i18n::ZH_CN);
+        app.lang = &crate::i18n::ZH_CN;
         app
     }
 
@@ -702,6 +824,72 @@ mod tests {
         assert_eq!(
             settings_from(&[(SETTING_UI_THEME, "nope")]).unwrap().theme,
             ThemeMode::Light
+        );
+    }
+
+    #[test]
+    fn settings_default_language_is_auto() {
+        let settings = settings_from(&[]).unwrap();
+        assert_eq!(settings.language, crate::i18n::LanguagePref::Auto);
+    }
+
+    #[test]
+    fn settings_parse_language_with_fallback() {
+        assert_eq!(
+            settings_from(&[(SETTING_UI_LANGUAGE, "en-US")])
+                .unwrap()
+                .language,
+            crate::i18n::LanguagePref::Fixed(&crate::i18n::EN_US)
+        );
+        assert_eq!(
+            settings_from(&[(SETTING_UI_LANGUAGE, "nope")])
+                .unwrap()
+                .language,
+            crate::i18n::LanguagePref::Auto
+        );
+    }
+
+    #[test]
+    fn settings_errors_use_selected_language() {
+        let error = settings_from(&[
+            (SETTING_UI_LANGUAGE, "en-US"),
+            (SETTING_ENABLE_ESYNC, "yes"),
+        ])
+        .unwrap_err();
+        assert!(error.contains("must be true/false"), "unexpected: {error}");
+    }
+
+    #[test]
+    fn apply_loaded_keeps_stored_language_when_settings_fail() {
+        let mut app = app();
+        let data = application::LoadedData {
+            games: Vec::new(),
+            runners: Vec::new(),
+            settings_map: BTreeMap::from([
+                (SETTING_UI_LANGUAGE.to_string(), "en-US".to_string()),
+                (SETTING_ENABLE_ESYNC.to_string(), "yes".to_string()),
+            ]),
+            session: application::SessionType::Unknown,
+            monitors: Vec::new(),
+            gamescope_path: None,
+            mangohud_path: None,
+        };
+
+        app.apply_loaded(data);
+
+        assert_eq!(app.lang, &crate::i18n::EN_US);
+        assert_eq!(
+            app.settings.language,
+            crate::i18n::LanguagePref::Fixed(&crate::i18n::EN_US)
+        );
+        let detail = app
+            .error
+            .expect("settings load failure should surface a notice")
+            .detail
+            .expect("notice should carry the parser error");
+        assert!(
+            detail.contains("must be true/false"),
+            "unexpected: {detail}"
         );
     }
 
@@ -742,6 +930,26 @@ mod tests {
             .collect();
         let parsed = SettingsState::from_map(&stored, Path::new("/tmp/prefixes")).unwrap();
         assert_eq!(parsed, settings);
+    }
+
+    #[test]
+    fn settings_round_trip_preserves_language() {
+        let mut settings = SettingsState::default_for(Path::new("/tmp/prefixes"));
+        settings.language = crate::i18n::LanguagePref::Fixed(&crate::i18n::EN_US);
+
+        let stored: BTreeMap<String, String> = settings
+            .to_map()
+            .unwrap()
+            .into_iter()
+            .filter_map(|(key, value)| value.map(|value| (key, value)))
+            .collect();
+        assert_eq!(stored[SETTING_UI_LANGUAGE], "en-US");
+        assert_eq!(
+            SettingsState::from_map(&stored, Path::new("/tmp/prefixes"))
+                .unwrap()
+                .language,
+            settings.language
+        );
     }
 
     #[test]
@@ -851,14 +1059,20 @@ mod tests {
         let mut app = app();
         let id = Uuid::new_v4();
 
-        let mut draft = GameDraft::new(PathBuf::from("/tmp/gamehub-ui-test/game.exe"));
+        let mut draft = GameDraft::new(
+            PathBuf::from("/tmp/gamehub-ui-test/game.exe"),
+            &crate::i18n::ZH_CN,
+        );
         draft.id = id;
         draft.name = "Edited".into();
         app.draft = Some(draft);
         app.selected_game = Some(id);
         app.draft_revision = 7;
 
-        let mut saved = GameDraft::new(PathBuf::from("/tmp/gamehub-ui-test/game.exe"));
+        let mut saved = GameDraft::new(
+            PathBuf::from("/tmp/gamehub-ui-test/game.exe"),
+            &crate::i18n::ZH_CN,
+        );
         saved.id = id;
         saved.name = "Saved".into();
         let game = saved.to_game().unwrap();
@@ -894,7 +1108,10 @@ mod tests {
         let mut app = app();
         let id = Uuid::new_v4();
 
-        let mut draft = GameDraft::new(PathBuf::from("/tmp/gamehub-ui-test/game.exe"));
+        let mut draft = GameDraft::new(
+            PathBuf::from("/tmp/gamehub-ui-test/game.exe"),
+            &crate::i18n::ZH_CN,
+        );
         draft.id = id;
         draft.name = "Before".into();
         app.draft = Some(draft);
@@ -903,7 +1120,10 @@ mod tests {
         app.cover_handles
             .insert(id, iced::widget::image::Handle::from_bytes(vec![1, 2, 3]));
 
-        let mut saved = GameDraft::new(PathBuf::from("/tmp/gamehub-ui-test/game.exe"));
+        let mut saved = GameDraft::new(
+            PathBuf::from("/tmp/gamehub-ui-test/game.exe"),
+            &crate::i18n::ZH_CN,
+        );
         saved.id = id;
         saved.name = "After".into();
         saved.cover_path = None;

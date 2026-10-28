@@ -3,6 +3,7 @@ use crate::draft::DraftAction;
 use crate::theme::ThemeMode;
 use application::{Game, LaunchEvent, LoadedData, Runner};
 use std::path::PathBuf;
+use uuid::Uuid;
 
 #[derive(Debug, Clone)]
 pub enum Message {
@@ -57,6 +58,10 @@ pub enum Message {
         mode: crate::theme::ThemeMode,
         result: Result<(), String>,
     },
+    LanguageSaved {
+        pref: crate::i18n::LanguagePref,
+        result: Result<(), String>,
+    },
     WindowResized(f32),
     ConfirmDelete(DeleteTarget),
     CancelDelete,
@@ -67,6 +72,10 @@ pub enum Message {
     },
     Launch(uuid::Uuid),
     LaunchEvent(LaunchEvent),
+    LaunchFailed {
+        game_id: Uuid,
+        error: String,
+    },
     Stop(uuid::Uuid),
     StopFinished {
         game_id: uuid::Uuid,
@@ -93,4 +102,5 @@ pub enum SettingsAction {
     AutoInstallDxvkNvapi(bool),
     DxvkNvapiSource(Option<PathBuf>),
     Theme(ThemeMode),
+    Language(crate::i18n::LanguagePref),
 }

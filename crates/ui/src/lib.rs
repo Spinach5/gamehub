@@ -1,6 +1,7 @@
 pub mod app;
 pub mod dialogs;
 pub mod draft;
+pub mod i18n;
 pub mod styles;
 pub mod theme;
 pub mod views;

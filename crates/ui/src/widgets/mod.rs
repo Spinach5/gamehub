@@ -22,15 +22,15 @@ use iced::widget::{column, container, text};
 use iced::{Border, Element, Length};
 use std::path::Path;
 
-pub fn error_banner(error: &ErrorNotice) -> Element<'_, Message> {
+pub fn error_banner(lang: crate::i18n::Lang, error: &ErrorNotice) -> Element<'_, Message> {
     let mut content = column![
         iced::widget::row![
-            badge("错误", Tone::Danger),
+            badge(crate::i18n::tr(lang, "widgets.error"), Tone::Danger),
             text(error.title.clone())
                 .size(14)
                 .font(font(Weight::Semibold)),
             iced::widget::horizontal_space(),
-            quiet_small("关闭").on_press(Message::DismissError),
+            quiet_small(crate::i18n::tr(lang, "common.close")).on_press(Message::DismissError),
         ]
         .spacing(10)
         .width(Length::Fill)
@@ -92,12 +92,12 @@ pub fn middle_truncate(value: &str, max_chars: usize) -> String {
     format!("{head}…{tail}")
 }
 
-pub fn path_text(path: Option<&Path>) -> String {
+pub fn path_text(lang: crate::i18n::Lang, path: Option<&Path>) -> String {
     path.map(|path| path.display().to_string())
-        .unwrap_or_else(|| "未选择".into())
+        .unwrap_or_else(|| crate::i18n::tr(lang, "common.none").into())
 }
 
-pub fn format_timestamp(timestamp: Option<i64>) -> String {
+pub fn format_timestamp(lang: crate::i18n::Lang, timestamp: Option<i64>) -> String {
     timestamp
         .and_then(|timestamp| DateTime::from_timestamp(timestamp, 0))
         .map(|date| {
@@ -105,7 +105,7 @@ pub fn format_timestamp(timestamp: Option<i64>) -> String {
                 .format("%Y-%m-%d %H:%M")
                 .to_string()
         })
-        .unwrap_or_else(|| "从未".into())
+        .unwrap_or_else(|| crate::i18n::tr(lang, "time.never").into())
 }
 
 #[cfg(test)]

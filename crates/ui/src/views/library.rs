@@ -8,7 +8,7 @@ use iced::{Element, Length};
 
 pub fn view(app: &App) -> Element<'_, Message> {
     if app.pending.loading {
-        return layout::centered_message("正在加载…");
+        return layout::centered_message(app.tr("common.loading"));
     }
 
     let running_count = app
@@ -17,11 +17,20 @@ pub fn view(app: &App) -> Element<'_, Message> {
         .filter(|game| app.running.contains_key(&game.id))
         .count();
     let header = layout::page_header(
-        "游戏库",
-        format!("{} 个游戏 · {} 个正在运行", app.games.len(), running_count),
+        app.tr("library.title"),
+        app.tr_plural_args(
+            "library.subtitle.one",
+            "library.subtitle.other",
+            app.games.len() as u64,
+            &[
+                ("games", &app.games.len().to_string()),
+                ("running", &running_count.to_string()),
+            ],
+        ),
         row![
-            controls::secondary("Runner 管理").on_press(Message::Navigate(Screen::RunnerManager)),
-            controls::primary("＋ 新建游戏").on_press(Message::NewGame),
+            controls::secondary(app.tr("nav.runners"))
+                .on_press(Message::Navigate(Screen::RunnerManager)),
+            controls::primary(app.tr("library.new_game")).on_press(Message::NewGame),
         ]
         .spacing(8),
     );
@@ -39,10 +48,10 @@ pub fn view(app: &App) -> Element<'_, Message> {
     if app.games.is_empty() {
         if app.error.is_none() {
             content = content.push(layout::empty_state(
-                "还没有游戏",
-                "点击下方按钮选择一个 .exe 开始",
+                app.tr("library.empty.title"),
+                app.tr("library.empty.body"),
                 Some(
-                    controls::primary("＋ 新建游戏")
+                    controls::primary(app.tr("library.new_game"))
                         .on_press(Message::NewGame)
                         .into(),
                 ),
@@ -51,7 +60,9 @@ pub fn view(app: &App) -> Element<'_, Message> {
     } else {
         content = content.push(
             row![
-                text("全部游戏").font(font(Weight::Bold)).size(16),
+                text(app.tr("library.all_games"))
+                    .font(font(Weight::Bold))
+                    .size(16),
                 text(app.games.len().to_string()).size(12).style(|theme| {
                     iced::widget::text::Style {
                         color: Some(tokens(theme).text_faint),
@@ -91,7 +102,7 @@ fn hero<'a>(app: &'a App, game: &'a Game) -> Element<'a, Message> {
                 layout::muted(format!(
                     "{} · {}",
                     runner_label(app, game),
-                    crate::widgets::format_timestamp(game.last_played_at)
+                    crate::widgets::format_timestamp(app.lang, game.last_played_at)
                 ))
                 .size(11),
             ]
@@ -99,7 +110,7 @@ fn hero<'a>(app: &'a App, game: &'a Game) -> Element<'a, Message> {
             .width(Length::Fill),
             row![
                 launch_or_stop(app, game, false),
-                controls::secondary("日志").on_press(Message::OpenLogs(game.id)),
+                controls::secondary(app.tr("nav.logs")).on_press(Message::OpenLogs(game.id)),
             ]
             .spacing(8),
         ]
@@ -160,11 +171,14 @@ fn game_card<'a>(
                 .width(Length::Fill)
                 .height(Length::Fixed(38.0))
                 .wrapping(iced::widget::text::Wrapping::WordOrGlyph),
-            layout::faint(crate::widgets::format_timestamp(game.last_played_at))
-                .size(11)
-                .width(Length::Fill)
-                .height(Length::Fixed(13.0))
-                .wrapping(iced::widget::text::Wrapping::None),
+            layout::faint(crate::widgets::format_timestamp(
+                app.lang,
+                game.last_played_at
+            ))
+            .size(11)
+            .width(Length::Fill)
+            .height(Length::Fixed(13.0))
+            .wrapping(iced::widget::text::Wrapping::None),
             layout::faint(truncate(&runner_label(app, game), 18))
                 .size(11)
                 .width(Length::Fill)
@@ -172,8 +186,9 @@ fn game_card<'a>(
                 .wrapping(iced::widget::text::Wrapping::None),
             row![
                 launch_or_stop(app, game, true),
-                controls::secondary_small("设置").on_press(Message::SelectGame(game.id)),
-                controls::quiet_small("日志").on_press(Message::OpenLogs(game.id)),
+                controls::secondary_small(app.tr("nav.settings"))
+                    .on_press(Message::SelectGame(game.id)),
+                controls::quiet_small(app.tr("nav.logs")).on_press(Message::OpenLogs(game.id)),
             ]
             .spacing(6),
         ]
@@ -188,15 +203,19 @@ fn game_card<'a>(
 fn launch_or_stop<'a>(app: &'a App, game: &'a Game, small: bool) -> Element<'a, Message> {
     if app.starting.contains(&game.id) {
         return if small {
-            controls::secondary_small("启动中").into()
+            controls::secondary_small(app.tr("launch.state.starting")).into()
         } else {
-            controls::secondary("启动中").into()
+            controls::secondary(app.tr("launch.state.starting")).into()
         };
     }
 
     if app.running.contains_key(&game.id) {
         let stopping = app.stopping.contains(&game.id);
-        let label = if stopping { "结束中" } else { "结束" };
+        let label = if stopping {
+            app.tr("launch.state.stopping")
+        } else {
+            app.tr("launch.stop")
+        };
         let press = (!stopping).then_some(Message::Stop(game.id));
         return if small {
             controls::danger_small(label).on_press_maybe(press).into()
@@ -207,21 +226,25 @@ fn launch_or_stop<'a>(app: &'a App, game: &'a Game, small: bool) -> Element<'a, 
 
     let press = (!app.pending.saving && !app.pending.deleting).then_some(Message::Launch(game.id));
     if small {
-        controls::primary_small("启动").on_press_maybe(press).into()
+        controls::primary_small(app.tr("launch.start"))
+            .on_press_maybe(press)
+            .into()
     } else {
-        controls::primary("启动").on_press_maybe(press).into()
+        controls::primary(app.tr("launch.start"))
+            .on_press_maybe(press)
+            .into()
     }
 }
 
 fn runner_label(app: &App, game: &Game) -> String {
     match game.runner_id {
-        None => "默认 Runner".to_owned(),
+        None => app.tr("launch.default_runner").to_owned(),
         Some(id) => app
             .runners
             .iter()
             .find(|runner| runner.id == id)
             .map(|runner| runner.name.clone())
-            .unwrap_or_else(|| "Runner 缺失".to_owned()),
+            .unwrap_or_else(|| app.tr("launch.runner_missing").to_owned()),
     }
 }
 
@@ -286,5 +309,26 @@ mod tests {
     fn truncate_only_adds_ellipsis_when_needed() {
         assert_eq!(truncate("short", 10), "short");
         assert_eq!(truncate("abcdefghij", 5), "abcde…");
+    }
+
+    #[test]
+    fn library_subtitle_uses_plural_forms() {
+        use crate::i18n::{EN_US, tr_plural_args};
+        let one = tr_plural_args(
+            &EN_US,
+            "library.subtitle.one",
+            "library.subtitle.other",
+            1,
+            &[("games", "1"), ("running", "1")],
+        );
+        let many = tr_plural_args(
+            &EN_US,
+            "library.subtitle.one",
+            "library.subtitle.other",
+            4,
+            &[("games", "4"), ("running", "0")],
+        );
+        assert_eq!(one, "1 game · 1 running");
+        assert_eq!(many, "4 games · 0 running");
     }
 }

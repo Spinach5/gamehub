@@ -16,19 +16,34 @@ use uuid::Uuid;
 pub fn view(app: &App) -> Element<'_, Message> {
     let Some(draft) = &app.draft else {
         return column![
-            controls::secondary("返回").on_press(Message::Navigate(Screen::Library)),
-            layout::empty_state("未选择游戏", "请从游戏库选择一个游戏", None),
+            controls::secondary(app.tr("common.back")).on_press(Message::Navigate(Screen::Library)),
+            layout::empty_state(
+                app.tr("detail.empty.title"),
+                app.tr("detail.empty.body"),
+                None
+            ),
         ]
         .spacing(16)
         .into();
     };
 
     let launch_state = app.launch_state_label(draft.id);
+    let subtitle = if draft.is_new {
+        app.tr("detail.subtitle.unsaved").to_owned()
+    } else {
+        let time = crate::widgets::format_timestamp(app.lang, draft.last_played_at);
+        let env = draft.env_rows.len().to_string();
+        let dll = draft.dll_rows.len().to_string();
+        app.tr_args(
+            "detail.subtitle.saved",
+            &[("time", &time), ("env", &env), ("dll", &dll)],
+        )
+    };
     let header = row![
-        controls::secondary("返回").on_press(Message::Navigate(Screen::Library)),
+        controls::secondary(app.tr("common.back")).on_press(Message::Navigate(Screen::Library)),
         column![
             text(if draft.is_new {
-                "新建游戏".to_owned()
+                app.tr("detail.new_title").to_owned()
             } else {
                 draft.name.clone()
             })
@@ -36,28 +51,18 @@ pub fn view(app: &App) -> Element<'_, Message> {
             .size(22)
             .width(Length::Fill)
             .wrapping(iced::widget::text::Wrapping::WordOrGlyph),
-            layout::muted(if draft.is_new {
-                "保存后可启动、创建 Prefix 或安装 DXVK".to_owned()
-            } else {
-                format!(
-                    "最近游玩：{} · {} 个环境变量 · {} 个 DLL Override",
-                    crate::widgets::format_timestamp(draft.last_played_at),
-                    draft.env_rows.len(),
-                    draft.dll_rows.len()
-                )
-            })
-            .size(11),
+            layout::muted(subtitle).size(11),
         ]
         .spacing(2)
         .width(Length::Fill),
-        controls::danger("删除游戏").on_press_maybe(
+        controls::danger(app.tr("detail.delete_game")).on_press_maybe(
             (!draft.is_new
                 && launch_state.is_none()
                 && !app.pending.deleting
                 && !app.pending.saving)
                 .then_some(Message::ConfirmDelete(DeleteTarget::Game(draft.id))),
         ),
-        controls::primary("保存").on_press_maybe(
+        controls::primary(app.tr("common.save")).on_press_maybe(
             (!app.pending.saving && !app.pending.deleting).then_some(Message::SaveDraft)
         ),
     ]
@@ -66,12 +71,12 @@ pub fn view(app: &App) -> Element<'_, Message> {
     .align_y(iced::Alignment::Center);
 
     let left = column![
-        basic_card(draft),
+        basic_card(app, draft),
         runner_card(app, draft),
         display_card(app, draft),
-        env_card(draft),
-        dll_card(draft),
-        args_card(draft),
+        env_card(app, draft),
+        dll_card(app, draft),
+        args_card(app, draft),
     ]
     .spacing(16)
     .width(Length::Fill);
@@ -97,36 +102,37 @@ pub fn view(app: &App) -> Element<'_, Message> {
         .into()
 }
 
-fn basic_card(draft: &GameDraft) -> Element<'_, Message> {
+fn basic_card<'a>(app: &'a App, draft: &'a GameDraft) -> Element<'a, Message> {
     let content = column![
         layout::field(
-            "名称",
-            text_input("游戏名称", draft.name.as_str())
+            app.tr("detail.name"),
+            text_input(app.tr("detail.name.placeholder"), draft.name.as_str())
                 .on_input(|value| Message::Draft(DraftAction::Name(value)))
                 .style(styles::text_input)
                 .width(Length::Fill)
         ),
         layout::field(
-            "可执行文件",
+            app.tr("detail.executable"),
             row![
-                layout::faint(path_text(draft.executable_path.as_deref()))
+                layout::faint(path_text(app.lang, draft.executable_path.as_deref()))
                     .size(11)
                     .width(Length::Fill),
-                controls::secondary_small("选择").on_press(Message::Pick(DialogIntent::PickExe)),
+                controls::secondary_small(app.tr("common.choose"))
+                    .on_press(Message::Pick(DialogIntent::PickExe)),
             ]
             .spacing(8)
             .align_y(iced::Alignment::Center)
             .width(Length::Fill)
         ),
         layout::field(
-            "工作目录",
+            app.tr("detail.working_dir"),
             row![
-                layout::faint(path_text(draft.working_dir.as_deref()))
+                layout::faint(path_text(app.lang, draft.working_dir.as_deref()))
                     .size(11)
                     .width(Length::Fill),
-                controls::secondary_small("选择")
+                controls::secondary_small(app.tr("common.choose"))
                     .on_press(Message::Pick(DialogIntent::PickWorkingDir)),
-                controls::quiet_small("清除").on_press_maybe(
+                controls::quiet_small(app.tr("common.clear")).on_press_maybe(
                     draft
                         .working_dir
                         .is_some()
@@ -138,10 +144,10 @@ fn basic_card(draft: &GameDraft) -> Element<'_, Message> {
             .width(Length::Fill)
         ),
         layout::field(
-            "架构",
+            app.tr("detail.arch"),
             pick_list(
-                crate::widgets::arch_choices(),
-                Some(crate::widgets::arch_choice(draft.arch)),
+                crate::widgets::arch_choices(app.lang),
+                Some(crate::widgets::arch_choice(app.lang, draft.arch)),
                 |choice| Message::Draft(DraftAction::Arch(choice.value)),
             )
             .style(styles::pick_list)
@@ -151,17 +157,18 @@ fn basic_card(draft: &GameDraft) -> Element<'_, Message> {
     .spacing(10)
     .width(Length::Fill);
 
-    layout::section_card("基本信息", None, content)
+    layout::section_card(app.tr("detail.section.basic"), None, content)
 }
 
 fn runner_card<'a>(app: &'a App, draft: &'a GameDraft) -> Element<'a, Message> {
-    let none_label = "使用默认 Runner";
+    let none_label = app.tr("choices.runner.default");
     let choices = crate::widgets::runner_choices(&app.runners, none_label);
     let selected = crate::widgets::runner_choice(&app.runners, none_label, draft.runner_id);
     let default_prefix = app.settings.prefix_root.join(draft.id.to_string());
     let prefix_path = draft.prefix_path.clone().unwrap_or(default_prefix);
     let status = app.prefix_status.as_ref();
-    let dxvk_text = path_text(app.dxvk_dir.as_deref());
+    let dxvk_text = path_text(app.lang, app.dxvk_dir.as_deref());
+    let dxvk_label = app.tr_args("detail.dxvk_dir", &[("path", dxvk_text.as_str())]);
 
     let mut content = column![
         layout::field(
@@ -179,27 +186,25 @@ fn runner_card<'a>(app: &'a App, draft: &'a GameDraft) -> Element<'a, Message> {
                 .width(Length::Fill)
         ),
         layout::field(
-            "状态",
+            app.tr("detail.status"),
             row![
-                badges::badge(prefix_status_label(status), prefix_tone(status)),
-                layout::faint(format!("DXVK 目录：{dxvk_text}"))
-                    .size(11)
-                    .width(Length::Fill),
+                badges::badge(prefix_status_label(status, app.lang), prefix_tone(status)),
+                layout::faint(dxvk_label).size(11).width(Length::Fill),
             ]
             .spacing(8)
             .align_y(iced::Alignment::Center)
             .width(Length::Fill)
         ),
         row![
-            controls::secondary_small("选择 Prefix 目录")
+            controls::secondary_small(app.tr("detail.choose_prefix_dir"))
                 .on_press(Message::Pick(DialogIntent::PickPrefixDir)),
-            controls::quiet_small("清除").on_press_maybe(
+            controls::quiet_small(app.tr("common.clear")).on_press_maybe(
                 draft
                     .prefix_path
                     .is_some()
                     .then_some(Message::Draft(DraftAction::ClearPrefix))
             ),
-            controls::danger_small("删除 Prefix").on_press_maybe(
+            controls::danger_small(app.tr("detail.delete_prefix")).on_press_maybe(
                 (!draft.is_new
                     && !app.pending.deleting
                     && matches!(
@@ -215,9 +220,9 @@ fn runner_card<'a>(app: &'a App, draft: &'a GameDraft) -> Element<'a, Message> {
         .spacing(8),
         row![
             controls::secondary_small(if app.pending.prefix.contains(&draft.id) {
-                "创建中…"
+                app.tr("detail.creating")
             } else {
-                "创建 / 初始化"
+                app.tr("detail.create_prefix")
             })
             .on_press_maybe(
                 (!draft.is_new && !app.pending.prefix.contains(&draft.id))
@@ -226,12 +231,12 @@ fn runner_card<'a>(app: &'a App, draft: &'a GameDraft) -> Element<'a, Message> {
         ]
         .spacing(8),
         row![
-            controls::secondary_small("选择 DXVK 目录")
+            controls::secondary_small(app.tr("detail.choose_dxvk_dir"))
                 .on_press(Message::Pick(DialogIntent::PickDxvkDir)),
             controls::primary_small(if app.pending.dxvk.contains(&draft.id) {
-                "安装中…"
+                app.tr("detail.installing")
             } else {
-                "安装 DXVK"
+                app.tr("detail.install_dxvk")
             })
             .on_press_maybe(
                 (!draft.is_new && app.dxvk_dir.is_some() && !app.pending.dxvk.contains(&draft.id))
@@ -244,24 +249,20 @@ fn runner_card<'a>(app: &'a App, draft: &'a GameDraft) -> Element<'a, Message> {
     .width(Length::Fill);
 
     if draft.is_new {
-        content = content.push(layout::faint("保存游戏后才能创建 Prefix 或安装 DXVK").size(11));
+        content = content.push(layout::faint(app.tr("detail.save_first_compat")).size(11));
     }
     if let Some(PrefixStatus::ArchMismatch { existing }) = &app.prefix_status {
         let existing = existing
-            .map(|arch| crate::widgets::arch_choice(arch).label)
-            .unwrap_or_else(|| "未知".to_owned());
-        content = content.push(
-            layout::faint(format!(
-                "架构不匹配：现有 prefix 为 {existing}，请更换 Prefix 或删除后重建"
-            ))
-            .size(11),
-        );
+            .map(|arch| crate::widgets::arch_choice(app.lang, arch).label)
+            .unwrap_or_else(|| app.tr("common.unknown").to_owned());
+        let hint = app.tr_args("detail.arch_mismatch", &[("existing", existing.as_str())]);
+        content = content.push(layout::faint(hint).size(11));
     }
     if app.prefix_status != Some(PrefixStatus::Initialized) {
-        content = content.push(layout::faint("启动前必须有一个已初始化的 Prefix").size(11));
+        content = content.push(layout::faint(app.tr("detail.prefix_required")).size(11));
     }
 
-    layout::section_card("兼容层与 Prefix", None, content)
+    layout::section_card(app.tr("detail.section.compat"), None, content)
 }
 
 fn display_card<'a>(app: &'a App, draft: &'a GameDraft) -> Element<'a, Message> {
@@ -276,8 +277,11 @@ fn display_card<'a>(app: &'a App, draft: &'a GameDraft) -> Element<'a, Message> 
     let backend_pick = {
         let base = base.clone();
         pick_list(
-            crate::widgets::backend_choices(),
-            Some(crate::widgets::backend_choice(draft.display.backend)),
+            crate::widgets::backend_choices(app.lang),
+            Some(crate::widgets::backend_choice(
+                app.lang,
+                draft.display.backend,
+            )),
             move |choice| {
                 let mut config = base.clone();
                 config.backend = choice.value;
@@ -291,8 +295,11 @@ fn display_card<'a>(app: &'a App, draft: &'a GameDraft) -> Element<'a, Message> 
     let gamescope_pick = {
         let base = base.clone();
         pick_list(
-            crate::widgets::gamescope_choices(),
-            Some(crate::widgets::gamescope_choice(draft.display.gamescope)),
+            crate::widgets::gamescope_choices(app.lang),
+            Some(crate::widgets::gamescope_choice(
+                app.lang,
+                draft.display.gamescope,
+            )),
             move |choice| {
                 let mut config = base.clone();
                 config.gamescope = choice.value;
@@ -306,8 +313,9 @@ fn display_card<'a>(app: &'a App, draft: &'a GameDraft) -> Element<'a, Message> 
     let monitor_pick = {
         let base = base.clone();
         pick_list(
-            crate::widgets::monitor_choices(&app.monitors),
+            crate::widgets::monitor_choices(app.lang, &app.monitors),
             Some(crate::widgets::monitor_choice(
+                app.lang,
                 &app.monitors,
                 draft.display.monitor.clone(),
             )),
@@ -325,8 +333,8 @@ fn display_card<'a>(app: &'a App, draft: &'a GameDraft) -> Element<'a, Message> 
     let fullscreen = {
         let base = base.clone();
         controls::switch_row(
-            "全屏",
-            "以全屏模式启动游戏",
+            app.tr("detail.fullscreen"),
+            app.tr("detail.fullscreen.hint"),
             draft.display.fullscreen,
             move |value| {
                 let mut config = base.clone();
@@ -337,14 +345,15 @@ fn display_card<'a>(app: &'a App, draft: &'a GameDraft) -> Element<'a, Message> 
     };
 
     let mut content = column![
-        layout::field("后端", backend_pick),
-        layout::faint("后端字段仅作记录；实际 X11/Wayland 以启动时的会话检测为准").size(11),
+        layout::field(app.tr("detail.backend"), backend_pick),
+        layout::faint(app.tr("detail.backend.hint")).size(11),
         layout::field("gamescope", gamescope_pick),
         layout::field(
-            "显示器",
+            app.tr("detail.monitor"),
             row![
                 monitor_pick,
-                controls::secondary_small("刷新").on_press(Message::RefreshMonitors),
+                controls::secondary_small(app.tr("common.refresh"))
+                    .on_press(Message::RefreshMonitors),
             ]
             .spacing(8)
         ),
@@ -357,13 +366,15 @@ fn display_card<'a>(app: &'a App, draft: &'a GameDraft) -> Element<'a, Message> 
         content = content.push(
             column![
                 row![
-                    layout::muted("分辨率").size(12).width(Length::Fixed(72.0)),
-                    text_input("宽", draft.resolution_width.as_str())
+                    layout::muted(app.tr("detail.resolution"))
+                        .size(12)
+                        .width(Length::Fixed(72.0)),
+                    text_input(app.tr("detail.width"), draft.resolution_width.as_str())
                         .on_input(|value| Message::Draft(DraftAction::ResolutionWidth(value)))
                         .style(styles::text_input)
                         .width(Length::Fixed(90.0)),
                     layout::muted("×").size(12),
-                    text_input("高", draft.resolution_height.as_str())
+                    text_input(app.tr("detail.height"), draft.resolution_height.as_str())
                         .on_input(|value| Message::Draft(DraftAction::ResolutionHeight(value)))
                         .style(styles::text_input)
                         .width(Length::Fixed(90.0)),
@@ -371,11 +382,16 @@ fn display_card<'a>(app: &'a App, draft: &'a GameDraft) -> Element<'a, Message> 
                 .spacing(8)
                 .align_y(iced::Alignment::Center),
                 row![
-                    layout::muted("刷新率").size(12).width(Length::Fixed(72.0)),
-                    text_input("例如 144", draft.refresh_rate.as_str())
-                        .on_input(|value| Message::Draft(DraftAction::RefreshRate(value)))
-                        .style(styles::text_input)
-                        .width(Length::Fixed(100.0)),
+                    layout::muted(app.tr("detail.refresh_rate"))
+                        .size(12)
+                        .width(Length::Fixed(72.0)),
+                    text_input(
+                        app.tr("detail.refresh_rate.placeholder"),
+                        draft.refresh_rate.as_str()
+                    )
+                    .on_input(|value| Message::Draft(DraftAction::RefreshRate(value)))
+                    .style(styles::text_input)
+                    .width(Length::Fixed(100.0)),
                 ]
                 .spacing(8)
                 .align_y(iced::Alignment::Center),
@@ -383,27 +399,21 @@ fn display_card<'a>(app: &'a App, draft: &'a GameDraft) -> Element<'a, Message> 
             .spacing(8),
         );
     } else {
-        content = content.push(
-            layout::faint(
-                "当前不会使用 gamescope：分辨率与刷新率不生效；选择显示器时会临时切换系统 primary",
-            )
-            .size(11),
-        );
+        content = content.push(layout::faint(app.tr("detail.gamescope.off_hint")).size(11));
     }
 
     if !app.monitors.iter().any(|output| output.connected) {
-        content = content.push(layout::faint("未检测到已连接显示器，点击“刷新”重新扫描").size(11));
+        content = content.push(layout::faint(app.tr("detail.monitors.none")).size(11));
     }
 
     if app.session == application::SessionType::Wayland {
         if gamescope_effective {
-            content = content
-                .push(layout::faint("gamescope 生效时，显示器通过 gamescope 参数指定").size(11));
+            content = content.push(layout::faint(app.tr("detail.gamescope.monitor_hint")).size(11));
         } else if draft.display.monitor.is_some() {
             let hint = if std::env::var_os("DISPLAY").is_some() {
-                "启动时会临时把所选显示器设为系统 primary（X11/XWayland），启动约 5 秒后恢复原 primary。"
+                app.tr("detail.monitor.x11_hint")
             } else {
-                "未检测到 XWayland（DISPLAY），将改用 Wine/Proton 的 Wayland 显示器变量；Wine Wayland 的全屏窗口位置无法保证。"
+                app.tr("detail.monitor.wayland_hint")
             };
             content = content.push(layout::faint(hint).size(11));
         }
@@ -411,20 +421,18 @@ fn display_card<'a>(app: &'a App, draft: &'a GameDraft) -> Element<'a, Message> 
 
     if app.gamescope_path.is_none() {
         if let Some(hint) = match draft.display.gamescope {
-            GamescopeMode::Forced => Some("强制 gamescope 但未检测到 gamescope，启动会被拒绝"),
-            GamescopeMode::Auto => {
-                Some("未检测到 gamescope，自动模式不会生效，分辨率/刷新率不会应用")
-            }
+            GamescopeMode::Forced => Some(app.tr("detail.gamescope.unavailable_forced")),
+            GamescopeMode::Auto => Some(app.tr("detail.gamescope.unavailable_auto")),
             GamescopeMode::Off => None,
         } {
             content = content.push(layout::faint(hint).size(11));
         }
     }
 
-    layout::section_card("显示", None, content)
+    layout::section_card(app.tr("detail.section.display"), None, content)
 }
 
-fn env_card(draft: &GameDraft) -> Element<'_, Message> {
+fn env_card<'a>(app: &'a App, draft: &'a GameDraft) -> Element<'a, Message> {
     let mut rows = column![].spacing(8).width(Length::Fill);
     for (index, entry) in draft.env_rows.iter().enumerate() {
         rows = rows.push(
@@ -445,7 +453,7 @@ fn env_card(draft: &GameDraft) -> Element<'_, Message> {
                     )
                     .style(styles::text_input)
                     .width(Length::FillPortion(3)),
-                controls::quiet_small("删除")
+                controls::quiet_small(app.tr("common.delete"))
                     .on_press(Message::Draft(DraftAction::Env(EnvAction::Remove(index)))),
             ]
             .spacing(8)
@@ -454,21 +462,20 @@ fn env_card(draft: &GameDraft) -> Element<'_, Message> {
         );
     }
     rows = rows.push(
-        controls::secondary_small("添加环境变量")
+        controls::secondary_small(app.tr("detail.add_env"))
             .on_press(Message::Draft(DraftAction::Env(EnvAction::Add))),
     );
-    rows = rows
-        .push(layout::faint("WINEDLLOVERRIDES 请使用下方的结构化 DLL Override，不要手填").size(11));
+    rows = rows.push(layout::faint(app.tr("detail.env.override_hint")).size(11));
 
-    layout::section_card("环境变量", None, rows)
+    layout::section_card(app.tr("detail.section.env"), None, rows)
 }
 
-fn dll_card(draft: &GameDraft) -> Element<'_, Message> {
+fn dll_card<'a>(app: &'a App, draft: &'a GameDraft) -> Element<'a, Message> {
     let mut rows = column![].spacing(8).width(Length::Fill);
     for (index, entry) in draft.dll_rows.iter().enumerate() {
         rows = rows.push(
             row![
-                text_input("DLL 名称（不含 .dll）", entry.name.as_str())
+                text_input(app.tr("detail.dll.name_placeholder"), entry.name.as_str())
                     .on_input(
                         move |name| Message::Draft(DraftAction::Dll(DllAction::Name {
                             index,
@@ -478,8 +485,8 @@ fn dll_card(draft: &GameDraft) -> Element<'_, Message> {
                     .style(styles::text_input)
                     .width(Length::FillPortion(2)),
                 pick_list(
-                    crate::widgets::override_mode_choices(),
-                    Some(crate::widgets::override_mode_choice(entry.mode)),
+                    crate::widgets::override_mode_choices(app.lang),
+                    Some(crate::widgets::override_mode_choice(app.lang, entry.mode)),
                     move |choice| Message::Draft(DraftAction::Dll(DllAction::Mode {
                         index,
                         mode: choice.value,
@@ -487,7 +494,7 @@ fn dll_card(draft: &GameDraft) -> Element<'_, Message> {
                 )
                 .style(styles::pick_list)
                 .menu_style(styles::menu),
-                controls::quiet_small("删除")
+                controls::quiet_small(app.tr("common.delete"))
                     .on_press(Message::Draft(DraftAction::Dll(DllAction::Remove(index)))),
             ]
             .spacing(8)
@@ -496,26 +503,26 @@ fn dll_card(draft: &GameDraft) -> Element<'_, Message> {
         );
     }
     rows = rows.push(
-        controls::secondary_small("添加 DLL Override")
+        controls::secondary_small(app.tr("detail.add_dll"))
             .on_press(Message::Draft(DraftAction::Dll(DllAction::Add))),
     );
 
-    layout::section_card("DLL Override", None, rows)
+    layout::section_card(app.tr("detail.section.dll"), None, rows)
 }
 
-fn args_card(draft: &GameDraft) -> Element<'_, Message> {
+fn args_card<'a>(app: &'a App, draft: &'a GameDraft) -> Element<'a, Message> {
     let mut rows = column![].spacing(8).width(Length::Fill);
     for (index, argument) in draft.args_rows.iter().enumerate() {
         rows =
             rows.push(
                 row![
-                    text_input("参数", argument.as_str())
+                    text_input(app.tr("detail.arg.placeholder"), argument.as_str())
                         .on_input(move |value| Message::Draft(DraftAction::Args(
                             ArgsAction::Value { index, value }
                         )))
                         .style(styles::text_input)
                         .width(Length::Fill),
-                    controls::quiet_small("删除")
+                    controls::quiet_small(app.tr("common.delete"))
                         .on_press(Message::Draft(DraftAction::Args(ArgsAction::Remove(index)))),
                 ]
                 .spacing(8)
@@ -524,11 +531,11 @@ fn args_card(draft: &GameDraft) -> Element<'_, Message> {
             );
     }
     rows = rows.push(
-        controls::secondary_small("添加参数")
+        controls::secondary_small(app.tr("detail.add_arg"))
             .on_press(Message::Draft(DraftAction::Args(ArgsAction::Add))),
     );
 
-    layout::section_card("启动参数", None, rows)
+    layout::section_card(app.tr("detail.section.args"), None, rows)
 }
 
 fn summary_card<'a>(app: &'a App, draft: &'a GameDraft) -> Element<'a, Message> {
@@ -550,18 +557,18 @@ fn summary_card<'a>(app: &'a App, draft: &'a GameDraft) -> Element<'a, Message> 
     let has_preview = draft.cover_source.is_some() || draft.cover_path.is_some();
 
     let launch: Element<'a, Message> = if app.starting.contains(&draft.id) {
-        controls::secondary("启动中").into()
+        controls::secondary(app.tr("launch.state.starting")).into()
     } else if app.running.contains_key(&draft.id) {
         let stopping = app.stopping.contains(&draft.id);
         controls::danger(if stopping {
-            "结束中"
+            app.tr("launch.state.stopping")
         } else {
-            "结束游戏"
+            app.tr("launch.stop_game")
         })
         .on_press_maybe((!stopping).then_some(Message::Stop(draft.id)))
         .into()
     } else {
-        controls::primary("启动游戏")
+        controls::primary(app.tr("launch.start_game"))
             .on_press_maybe(
                 (!draft.is_new && !app.pending.deleting && !app.pending.saving)
                     .then_some(Message::Launch(draft.id)),
@@ -573,20 +580,20 @@ fn summary_card<'a>(app: &'a App, draft: &'a GameDraft) -> Element<'a, Message> 
         .runner_id
         .and_then(|id| app.runners.iter().find(|runner| runner.id == id))
         .map(|runner| runner.name.clone())
-        .unwrap_or_else(|| "默认 Runner".to_owned());
+        .unwrap_or_else(|| app.tr("launch.default_runner").to_owned());
 
     let status = app.prefix_status.as_ref();
     let dxvk_source = if app.dxvk_dir.is_some() {
-        "已选择"
+        app.tr("detail.selected")
     } else {
-        "未选择"
+        app.tr("common.none")
     };
     let facts = column![
-        fact("Prefix", prefix_status_label(status).to_owned()),
-        fact("DXVK 源", dxvk_source.to_owned()),
+        fact("Prefix", prefix_status_label(status, app.lang).to_owned()),
+        fact(app.tr("detail.fact.dxvk_source"), dxvk_source.to_owned()),
         fact(
-            "最近游玩",
-            crate::widgets::format_timestamp(draft.last_played_at),
+            app.tr("detail.fact.recently_played"),
+            crate::widgets::format_timestamp(app.lang, draft.last_played_at),
         ),
     ]
     .spacing(6)
@@ -608,20 +615,20 @@ fn summary_card<'a>(app: &'a App, draft: &'a GameDraft) -> Element<'a, Message> 
             layout::muted(format!(
                 "{} · {}",
                 runner,
-                crate::widgets::arch_choice(draft.arch).label
+                crate::widgets::arch_choice(app.lang, draft.arch).label
             ))
             .size(11),
         )
         .push(launch);
     if draft.is_new {
-        details = details.push(layout::faint("保存后才能启动").size(11));
+        details = details.push(layout::faint(app.tr("detail.save_first")).size(11));
     }
     details = details
         .push(
             row![
-                controls::secondary_small("选择封面")
+                controls::secondary_small(app.tr("detail.cover.choose"))
                     .on_press(Message::Pick(DialogIntent::PickCover)),
-                controls::secondary_small("恢复默认封面")
+                controls::secondary_small(app.tr("detail.cover.restore"))
                     .on_press_maybe(has_preview.then_some(Message::Draft(DraftAction::ClearCover))),
             ]
             .spacing(8),
@@ -674,13 +681,19 @@ fn prefix_tone(status: Option<&PrefixStatus>) -> Tone {
     }
 }
 
-fn prefix_status_label(status: Option<&PrefixStatus>) -> &'static str {
+fn prefix_status_label(status: Option<&PrefixStatus>, lang: crate::i18n::Lang) -> &'static str {
     match status {
-        None => "未知（未解析 Runner 或未加载）",
-        Some(PrefixStatus::Missing) => "未创建",
-        Some(PrefixStatus::NotInitialized) => "目录存在，未初始化",
-        Some(PrefixStatus::Initialized) => "已初始化",
-        Some(PrefixStatus::ArchMismatch { .. }) => "架构不匹配",
+        None => crate::i18n::tr(lang, "detail.prefix_status.unknown"),
+        Some(PrefixStatus::Missing) => crate::i18n::tr(lang, "detail.prefix_status.missing"),
+        Some(PrefixStatus::NotInitialized) => {
+            crate::i18n::tr(lang, "detail.prefix_status.not_initialized")
+        }
+        Some(PrefixStatus::Initialized) => {
+            crate::i18n::tr(lang, "detail.prefix_status.initialized")
+        }
+        Some(PrefixStatus::ArchMismatch { .. }) => {
+            crate::i18n::tr(lang, "detail.prefix_status.arch_mismatch")
+        }
     }
 }
 
@@ -709,20 +722,41 @@ mod tests {
     #[test]
     fn prefix_labels_are_present() {
         assert_eq!(
-            prefix_status_label(Some(&PrefixStatus::Initialized)),
+            prefix_status_label(Some(&PrefixStatus::Initialized), &crate::i18n::ZH_CN),
             "已初始化"
         );
-        assert_eq!(prefix_status_label(None), "未知（未解析 Runner 或未加载）");
-        assert_eq!(prefix_status_label(Some(&PrefixStatus::Missing)), "未创建");
         assert_eq!(
-            prefix_status_label(Some(&PrefixStatus::NotInitialized)),
+            prefix_status_label(None, &crate::i18n::ZH_CN),
+            "未知（未解析 Runner 或未加载）"
+        );
+        assert_eq!(
+            prefix_status_label(Some(&PrefixStatus::Missing), &crate::i18n::ZH_CN),
+            "未创建"
+        );
+        assert_eq!(
+            prefix_status_label(Some(&PrefixStatus::NotInitialized), &crate::i18n::ZH_CN),
             "目录存在，未初始化"
         );
         assert_eq!(
-            prefix_status_label(Some(&PrefixStatus::ArchMismatch {
-                existing: Some(Arch::Win64)
-            })),
+            prefix_status_label(
+                Some(&PrefixStatus::ArchMismatch {
+                    existing: Some(Arch::Win64)
+                }),
+                &crate::i18n::ZH_CN
+            ),
             "架构不匹配"
+        );
+        assert_eq!(
+            prefix_status_label(Some(&PrefixStatus::Initialized), &crate::i18n::EN_US),
+            "Initialized"
+        );
+        assert_eq!(
+            prefix_status_label(Some(&PrefixStatus::NotInitialized), &crate::i18n::EN_US),
+            "Folder exists, not initialized"
+        );
+        assert_eq!(
+            prefix_status_label(None, &crate::i18n::EN_US),
+            "Unknown (runner not resolved or not loaded)"
         );
     }
 }

@@ -14,8 +14,8 @@ fn log_text_style(theme: &iced::Theme) -> iced::widget::text::Style {
 pub fn view(app: &App) -> Element<'_, Message> {
     let Some(game_id) = app.logs_game else {
         return column![
-            controls::secondary("返回").on_press(Message::Navigate(Screen::Library)),
-            layout::empty_state("未选择游戏", "请从游戏库打开一个游戏的日志", None),
+            controls::secondary(app.tr("common.back")).on_press(Message::Navigate(Screen::Library)),
+            layout::empty_state(app.tr("logs.empty.title"), app.tr("logs.empty.body"), None),
         ]
         .spacing(16)
         .into();
@@ -26,14 +26,15 @@ pub fn view(app: &App) -> Element<'_, Message> {
         .iter()
         .find(|game| game.id == game_id)
         .map(|game| game.name.as_str())
-        .unwrap_or("游戏");
+        .unwrap_or_else(|| app.tr("logs.game_fallback"));
 
+    let lines = crate::app::LOG_TAIL_LINES.to_string();
     let header = layout::page_header(
-        format!("{name} 的日志"),
-        format!("每秒自动刷新，显示最后 {} 行", crate::app::LOG_TAIL_LINES),
+        app.tr_args("logs.title", &[("name", name)]),
+        app.tr_args("logs.subtitle", &[("lines", &lines)]),
         row![
-            controls::secondary("返回").on_press(Message::Navigate(Screen::Library)),
-            controls::secondary("刷新").on_press(Message::RefreshLogs),
+            controls::secondary(app.tr("common.back")).on_press(Message::Navigate(Screen::Library)),
+            controls::secondary(app.tr("common.refresh")).on_press(Message::RefreshLogs),
         ]
         .spacing(8),
     );
@@ -43,10 +44,11 @@ pub fn view(app: &App) -> Element<'_, Message> {
     } else {
         app.logs_content.lines().count()
     };
+    let count = line_count.to_string();
 
     let body: Element<'_, Message> = if let Some(error) = &app.logs_error {
         container(
-            text(format!("读取日志失败：{error}"))
+            text(app.tr_args("logs.read_failed", &[("error", error)]))
                 .size(13)
                 .style(log_text_style),
         )
@@ -55,7 +57,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
         .center(Length::Fill)
         .into()
     } else if app.logs_content.is_empty() {
-        container(text("该游戏还没有启动日志").size(13).style(log_text_style))
+        container(text(app.tr("logs.no_logs")).size(13).style(log_text_style))
             .width(Length::Fill)
             .height(Length::Fill)
             .center(Length::Fill)
@@ -84,9 +86,14 @@ pub fn view(app: &App) -> Element<'_, Message> {
         .height(Length::Fill);
     if app.logs_error.is_none() {
         panel_content = panel_content.push(
-            text(format!("{line_count} 行"))
-                .size(10)
-                .style(log_text_style),
+            text(app.tr_plural_args(
+                "logs.line_count.one",
+                "logs.line_count.other",
+                line_count as u64,
+                &[("count", &count)],
+            ))
+            .size(10)
+            .style(log_text_style),
         );
     }
     panel_content = panel_content.push(body);

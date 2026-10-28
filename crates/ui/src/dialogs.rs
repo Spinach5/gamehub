@@ -13,12 +13,17 @@ pub enum DialogIntent {
     PickCover,
 }
 
-fn dialog_impl(intent: DialogIntent) -> Option<std::path::PathBuf> {
+fn dialog_impl(intent: DialogIntent, lang: crate::i18n::Lang) -> Option<std::path::PathBuf> {
     let dialog = rfd::FileDialog::new();
     match intent {
-        DialogIntent::PickExe => dialog.add_filter("Windows 程序", &["exe"]).pick_file(),
+        DialogIntent::PickExe => dialog
+            .add_filter(crate::i18n::tr(lang, "dialogs.filter.windows"), &["exe"])
+            .pick_file(),
         DialogIntent::PickCover => dialog
-            .add_filter("封面图片", &["png", "jpg", "jpeg", "webp", "bmp"])
+            .add_filter(
+                crate::i18n::tr(lang, "dialogs.filter.cover"),
+                &["png", "jpg", "jpeg", "webp", "bmp"],
+            )
             .pick_file(),
         DialogIntent::PickWorkingDir
         | DialogIntent::PickProtonDir
@@ -29,17 +34,17 @@ fn dialog_impl(intent: DialogIntent) -> Option<std::path::PathBuf> {
     }
 }
 
-pub fn pick(intent: DialogIntent) -> Task<Message> {
+pub fn pick(intent: DialogIntent, lang: crate::i18n::Lang) -> Task<Message> {
     Task::perform(
         async move {
-            match tokio::task::spawn_blocking(move || dialog_impl(intent)).await {
+            match tokio::task::spawn_blocking(move || dialog_impl(intent, lang)).await {
                 Ok(path) => Some((intent, path)),
                 Err(_) => None,
             }
         },
-        |result| match result {
+        move |result| match result {
             Some((intent, path)) => Message::DialogResult { intent, path },
-            None => Message::Error("文件对话框失败".into()),
+            None => Message::Error(crate::i18n::tr(lang, "dialogs.error.failed").to_owned()),
         },
     )
 }

@@ -10,17 +10,17 @@ use launcher_core::RunnerKind;
 
 pub fn view(app: &App) -> Element<'_, Message> {
     if app.pending.loading {
-        return layout::centered_message("正在加载…");
+        return layout::centered_message(app.tr("common.loading"));
     }
 
     let busy = app.pending.detecting_wine || app.pending.importing_proton;
     let header = layout::page_header(
-        "Runner 管理",
-        "探测系统 Wine，或导入自备的 Proton / GE-Proton 目录",
+        app.tr("runners.title"),
+        app.tr("runners.subtitle"),
         row![
-            controls::secondary("重新探测系统 Wine")
+            controls::secondary(app.tr("runners.detect"))
                 .on_press_maybe((!busy).then_some(Message::DetectSystemWine)),
-            controls::primary("导入 Proton 目录")
+            controls::primary(app.tr("runners.import"))
                 .on_press_maybe((!busy).then_some(Message::ImportProton)),
         ]
         .spacing(8),
@@ -29,13 +29,13 @@ pub fn view(app: &App) -> Element<'_, Message> {
     let body: Element<'_, Message> = if app.runners.is_empty() {
         if app.error.is_none() {
             layout::empty_state(
-                "尚未检测到 Runner",
-                "先探测系统 Wine，或导入 Proton 目录",
+                app.tr("runners.empty.title"),
+                app.tr("runners.empty.body"),
                 Some(
                     row![
-                        controls::secondary("探测系统 Wine")
+                        controls::secondary(app.tr("runners.detect_short"))
                             .on_press_maybe((!busy).then_some(Message::DetectSystemWine)),
-                        controls::primary("导入 Proton 目录")
+                        controls::primary(app.tr("runners.import"))
                             .on_press_maybe((!busy).then_some(Message::ImportProton)),
                     ]
                     .spacing(8)
@@ -43,7 +43,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
                 ),
             )
         } else {
-            layout::centered_message("暂无可用的 Runner")
+            layout::centered_message(app.tr("runners.empty.none"))
         }
     } else {
         let mut grid = column![].spacing(16).width(Length::Fill);
@@ -100,18 +100,21 @@ fn runner_card<'a>(app: &'a App, runner: &'a Runner) -> Element<'a, Message> {
     .spacing(8)
     .align_y(iced::Alignment::Center);
     if is_default {
-        title = title.push(badges::badge("默认", Tone::Info));
+        title = title.push(badges::badge(app.tr("runners.badge.default"), Tone::Info));
     }
 
     let verified = if runner.verified {
-        badges::badge("已验证", Tone::Live)
+        badges::badge(app.tr("runners.badge.verified"), Tone::Live)
     } else {
-        badges::badge("未验证", Tone::Warning)
+        badges::badge(app.tr("runners.badge.unverified"), Tone::Warning)
     };
 
     let version = row![
         layout::faint(truncate(
-            runner.version_string.as_deref().unwrap_or("版本未知"),
+            runner
+                .version_string
+                .as_deref()
+                .unwrap_or(app.tr("runners.version_unknown")),
             22
         ))
         .size(11)
@@ -133,20 +136,26 @@ fn runner_card<'a>(app: &'a App, runner: &'a Runner) -> Element<'a, Message> {
     .wrapping(iced::widget::text::Wrapping::None);
 
     let actions = row![
-        controls::secondary_small("设为默认").on_press_maybe(
+        controls::secondary_small(app.tr("runners.set_default")).on_press_maybe(
             (!is_default && !app.pending.settings_saving && !app.pending.deleting)
                 .then_some(Message::SetDefaultRunner(Some(runner.id)))
         ),
-        controls::danger_small("删除").on_press_maybe(
+        controls::danger_small(app.tr("common.delete")).on_press_maybe(
             can_delete.then_some(Message::ConfirmDelete(DeleteTarget::Runner(runner.id)))
         ),
     ]
     .spacing(8);
 
     let hint = if is_default {
-        "默认 Runner，请先更换".to_owned()
+        app.tr("runners.default_in_use").to_owned()
     } else if in_use > 0 {
-        format!("{in_use} 个游戏正在使用")
+        let count = in_use.to_string();
+        app.tr_plural_args(
+            "runners.in_use.one",
+            "runners.in_use.other",
+            in_use as u64,
+            &[("count", &count)],
+        )
     } else {
         String::new()
     };
