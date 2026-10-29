@@ -1,6 +1,5 @@
 pub mod app;
 pub mod dialogs;
-pub mod draft;
 pub mod i18n;
 pub mod styles;
 pub mod theme;
@@ -24,7 +23,7 @@ pub fn run() -> iced::Result {
         eprintln!("gamehub: cannot create application directories: {error}");
     }
 
-    let _log_guard = launcher_core::init_logging(
+    let _log_guard = application::init_logging(
         &paths.logs_dir,
         "info,ui=debug,application=debug,launch=debug,storage=debug",
     );

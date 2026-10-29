@@ -16,7 +16,6 @@ name = "gamehub"
 path = "src/main.rs"
 
 [dependencies]
-launcher-core.workspace = true
 application.workspace = true
 iced.workspace = true
 tokio.workspace = true

@@ -2,9 +2,9 @@ mod message;
 mod update;
 mod view;
 
-use crate::draft::{EnvRow, GameDraft};
 use crate::i18n::{self, Lang, LanguagePref};
 use crate::theme::ThemeMode;
+use application::editor::{DraftAction, EnvRow, GameDraft, env_rows_to_map};
 use application::{
     AppPaths, AppService, Game, MonitorOutput, PrefixPlan, PrefixStatus, Runner, SessionType,
     validate_env_key,
@@ -198,8 +198,8 @@ impl SettingsState {
         if !self.prefix_root.is_absolute() {
             return Err(i18n::tr(lang, "settings.error.prefix_root_absolute").into());
         }
-        let env = crate::draft::env_rows_to_map(&self.global_env_rows)
-            .map_err(|error| error.render(lang))?;
+        let env = env_rows_to_map(&self.global_env_rows)
+            .map_err(|error| crate::i18n::errors::draft_error(lang, &error))?;
         let global_env = serde_json::to_string(&env).map_err(|error| {
             i18n::tr_args(
                 lang,
@@ -461,7 +461,7 @@ impl App {
             Err(error) => {
                 self.error = Some(
                     ErrorNotice::form(self.tr("app.error.form_validation"))
-                        .with_detail(error.render(self.lang)),
+                        .with_detail(crate::i18n::errors::draft_error(self.lang, &error)),
                 );
                 return iced::Task::none();
             }
@@ -566,7 +566,11 @@ impl App {
                     if let Some(draft) = &mut self.draft {
                         draft.executable_path = Some(path);
                     } else {
-                        self.draft = Some(GameDraft::new(path, self.lang));
+                        let mut draft = GameDraft::new(path);
+                        if draft.name.is_empty() {
+                            draft.name = self.tr("draft.default_name").to_string();
+                        }
+                        self.draft = Some(draft);
                         self.selected_game = None;
                         self.screen = Screen::GameDetail;
                     }
@@ -622,7 +626,7 @@ impl App {
             }
             DialogIntent::PickCover => {
                 if let (Some(draft), Some(path)) = (&mut self.draft, path) {
-                    draft.apply(crate::draft::DraftAction::CoverSource(path));
+                    draft.apply(DraftAction::CoverSource(path));
                     self.touch_draft();
                 }
             }
@@ -639,7 +643,9 @@ impl App {
     fn game_for_actions(&self, game_id: Uuid) -> Result<Game, String> {
         if let Some(draft) = &self.draft {
             if draft.id == game_id {
-                return draft.to_game().map_err(|error| error.render(self.lang));
+                return draft
+                    .to_game()
+                    .map_err(|error| crate::i18n::errors::draft_error(self.lang, &error));
             }
         }
         self.games
@@ -1059,20 +1065,14 @@ mod tests {
         let mut app = app();
         let id = Uuid::new_v4();
 
-        let mut draft = GameDraft::new(
-            PathBuf::from("/tmp/gamehub-ui-test/game.exe"),
-            &crate::i18n::ZH_CN,
-        );
+        let mut draft = GameDraft::new(PathBuf::from("/tmp/gamehub-ui-test/game.exe"));
         draft.id = id;
         draft.name = "Edited".into();
         app.draft = Some(draft);
         app.selected_game = Some(id);
         app.draft_revision = 7;
 
-        let mut saved = GameDraft::new(
-            PathBuf::from("/tmp/gamehub-ui-test/game.exe"),
-            &crate::i18n::ZH_CN,
-        );
+        let mut saved = GameDraft::new(PathBuf::from("/tmp/gamehub-ui-test/game.exe"));
         saved.id = id;
         saved.name = "Saved".into();
         let game = saved.to_game().unwrap();
@@ -1108,10 +1108,7 @@ mod tests {
         let mut app = app();
         let id = Uuid::new_v4();
 
-        let mut draft = GameDraft::new(
-            PathBuf::from("/tmp/gamehub-ui-test/game.exe"),
-            &crate::i18n::ZH_CN,
-        );
+        let mut draft = GameDraft::new(PathBuf::from("/tmp/gamehub-ui-test/game.exe"));
         draft.id = id;
         draft.name = "Before".into();
         app.draft = Some(draft);
@@ -1120,10 +1117,7 @@ mod tests {
         app.cover_handles
             .insert(id, iced::widget::image::Handle::from_bytes(vec![1, 2, 3]));
 
-        let mut saved = GameDraft::new(
-            PathBuf::from("/tmp/gamehub-ui-test/game.exe"),
-            &crate::i18n::ZH_CN,
-        );
+        let mut saved = GameDraft::new(PathBuf::from("/tmp/gamehub-ui-test/game.exe"));
         saved.id = id;
         saved.name = "After".into();
         saved.cover_path = None;

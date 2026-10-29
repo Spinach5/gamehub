@@ -1,8 +1,8 @@
 use crate::app::{App, Message, SettingsAction};
-use crate::draft::EnvAction;
 use crate::styles;
 use crate::theme::{ThemeMode, font};
 use crate::widgets::{Choice, Tone, badges, controls, layout, middle_truncate};
+use application::editor::EnvAction;
 use iced::font::Weight;
 use iced::widget::{column, container, pick_list, row, scrollable, text, text_input};
 use iced::{Element, Length};

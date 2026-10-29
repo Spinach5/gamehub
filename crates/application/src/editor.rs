@@ -1,3 +1,6 @@
+//! Game editor draft state and validation, independent of any GUI toolkit.
+
+use crate::{validate_dll_name, validate_env_key};
 use launcher_core::{Arch, DisplayConfig, DllOverride, Game, OverrideMode};
 use std::collections::{BTreeMap, HashSet};
 use std::path::PathBuf;
@@ -157,21 +160,6 @@ pub enum DraftField {
     DllOverride,
 }
 
-impl DraftField {
-    fn label(self, lang: crate::i18n::Lang) -> &'static str {
-        match self {
-            Self::Name => crate::i18n::tr(lang, "draft.field.name"),
-            Self::Executable => crate::i18n::tr(lang, "draft.field.executable"),
-            Self::WorkingDir => crate::i18n::tr(lang, "draft.field.working_dir"),
-            Self::Prefix => crate::i18n::tr(lang, "draft.field.prefix"),
-            Self::Resolution => crate::i18n::tr(lang, "draft.field.resolution"),
-            Self::RefreshRate => crate::i18n::tr(lang, "draft.field.refresh_rate"),
-            Self::Env => crate::i18n::tr(lang, "draft.field.env"),
-            Self::DllOverride => crate::i18n::tr(lang, "draft.field.dll"),
-        }
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DraftErrorKind {
     NameEmpty,
@@ -202,65 +190,6 @@ pub struct DraftError {
 impl DraftError {
     fn new(field: DraftField, kind: DraftErrorKind) -> Self {
         Self { field, kind }
-    }
-
-    pub fn render(&self, lang: crate::i18n::Lang) -> String {
-        let message = match &self.kind {
-            DraftErrorKind::NameEmpty => crate::i18n::tr(lang, "draft.error.name_empty").to_owned(),
-            DraftErrorKind::ExecutableMissing => {
-                crate::i18n::tr(lang, "draft.error.executable_missing").to_owned()
-            }
-            DraftErrorKind::ExecutableNotAbsolute => {
-                crate::i18n::tr(lang, "draft.error.executable_not_absolute").to_owned()
-            }
-            DraftErrorKind::WorkingDirNotAbsolute => {
-                crate::i18n::tr(lang, "draft.error.working_dir_not_absolute").to_owned()
-            }
-            DraftErrorKind::PrefixNotAbsolute => {
-                crate::i18n::tr(lang, "draft.error.prefix_not_absolute").to_owned()
-            }
-            DraftErrorKind::ResolutionPartial => {
-                crate::i18n::tr(lang, "draft.error.resolution_partial").to_owned()
-            }
-            DraftErrorKind::ResolutionWidthInvalid => {
-                crate::i18n::tr(lang, "draft.error.resolution_width").to_owned()
-            }
-            DraftErrorKind::ResolutionHeightInvalid => {
-                crate::i18n::tr(lang, "draft.error.resolution_height").to_owned()
-            }
-            DraftErrorKind::ResolutionZero => {
-                crate::i18n::tr(lang, "draft.error.resolution_zero").to_owned()
-            }
-            DraftErrorKind::RefreshRateInvalid => {
-                crate::i18n::tr(lang, "draft.error.refresh_rate_invalid").to_owned()
-            }
-            DraftErrorKind::RefreshRateZero => {
-                crate::i18n::tr(lang, "draft.error.refresh_rate_zero").to_owned()
-            }
-            DraftErrorKind::EnvKeyEmpty => {
-                crate::i18n::tr(lang, "draft.error.env_key_empty").to_owned()
-            }
-            DraftErrorKind::EnvReservedOverride => {
-                crate::i18n::tr(lang, "draft.error.env_reserved_override").to_owned()
-            }
-            DraftErrorKind::EnvKeyInvalid { key } => {
-                crate::i18n::tr_args(lang, "draft.error.env_key_invalid", &[("key", key)])
-            }
-            DraftErrorKind::EnvDuplicate { key } => {
-                crate::i18n::tr_args(lang, "draft.error.env_duplicate", &[("key", key)])
-            }
-            DraftErrorKind::DllNameInvalid { name } => {
-                crate::i18n::tr_args(lang, "draft.error.dll_name_invalid", &[("name", name)])
-            }
-            DraftErrorKind::DllDuplicate { name } => {
-                crate::i18n::tr_args(lang, "draft.error.dll_duplicate", &[("name", name)])
-            }
-        };
-        crate::i18n::tr_args(
-            lang,
-            "draft.format",
-            &[("field", self.field.label(lang)), ("message", &message)],
-        )
     }
 }
 
@@ -330,7 +259,7 @@ fn normalize_dll_name(value: &str) -> String {
     }
 }
 
-pub(crate) fn env_rows_to_map(rows: &[EnvRow]) -> Result<BTreeMap<String, String>, DraftError> {
+pub fn env_rows_to_map(rows: &[EnvRow]) -> Result<BTreeMap<String, String>, DraftError> {
     let mut map = BTreeMap::new();
     for row in rows {
         let key = row.key.trim();
@@ -349,7 +278,7 @@ pub(crate) fn env_rows_to_map(rows: &[EnvRow]) -> Result<BTreeMap<String, String
                 DraftErrorKind::EnvReservedOverride,
             ));
         }
-        application::validate_env_key(key).map_err(|_| {
+        validate_env_key(key).map_err(|_| {
             DraftError::new(
                 DraftField::Env,
                 DraftErrorKind::EnvKeyInvalid {
@@ -378,7 +307,7 @@ fn dll_rows_to_overrides(rows: &[DllRow]) -> Result<Vec<DllOverride>, DraftError
         if name.is_empty() {
             continue;
         }
-        application::validate_dll_name(&name).map_err(|_| {
+        validate_dll_name(&name).map_err(|_| {
             DraftError::new(
                 DraftField::DllOverride,
                 DraftErrorKind::DllNameInvalid { name: name.clone() },
@@ -400,12 +329,14 @@ fn dll_rows_to_overrides(rows: &[DllRow]) -> Result<Vec<DllOverride>, DraftError
 }
 
 impl GameDraft {
-    pub fn new(executable_path: PathBuf, lang: crate::i18n::Lang) -> Self {
+    /// Seeds the name from the executable's file stem. The name is left empty
+    /// when there is no stem, so the caller can supply a localized fallback.
+    pub fn new(executable_path: PathBuf) -> Self {
         let name = executable_path
             .file_stem()
             .and_then(|stem| stem.to_str())
             .filter(|stem| !stem.is_empty())
-            .unwrap_or_else(|| crate::i18n::tr(lang, "draft.default_name"))
+            .unwrap_or_default()
             .to_string();
 
         Self {
@@ -574,7 +505,7 @@ impl GameDraft {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use launcher_core::{Arch, DisplayConfig, DllOverride, GamescopeMode, OverrideMode};
+    use launcher_core::GamescopeMode;
     use std::collections::BTreeMap;
     use std::path::PathBuf;
     use uuid::Uuid;
@@ -605,10 +536,7 @@ mod tests {
 
     #[test]
     fn new_draft_uses_file_stem_as_name() {
-        let draft = GameDraft::new(
-            PathBuf::from("/games/Cyberpunk 2077.exe"),
-            &crate::i18n::ZH_CN,
-        );
+        let draft = GameDraft::new(PathBuf::from("/games/Cyberpunk 2077.exe"));
         assert_eq!(draft.name, "Cyberpunk 2077");
         assert!(draft.is_new);
         assert_eq!(
@@ -870,54 +798,5 @@ mod tests {
         assert_eq!(args, vec!["-skip".to_string()]);
         apply_args_action(&mut args, ArgsAction::Remove(99));
         assert_eq!(args.len(), 1);
-    }
-
-    #[test]
-    fn draft_errors_render_in_both_languages() {
-        use crate::i18n::{EN_US, ZH_CN};
-        let error = DraftError {
-            field: DraftField::Resolution,
-            kind: DraftErrorKind::ResolutionPartial,
-        };
-        assert_eq!(error.render(&ZH_CN), "分辨率：宽和高必须同时填写或同时留空");
-        assert_eq!(
-            error.render(&EN_US),
-            "Resolution: width and height must both be set or both be empty"
-        );
-    }
-
-    #[test]
-    fn duplicate_env_name_is_reported_in_english() {
-        use crate::i18n::EN_US;
-        let rows = vec![
-            EnvRow {
-                key: "A".into(),
-                value: "1".into(),
-            },
-            EnvRow {
-                key: "A".into(),
-                value: "2".into(),
-            },
-        ];
-        let error = env_rows_to_map(&rows).unwrap_err();
-        assert_eq!(
-            error.render(&EN_US),
-            "Environment variables: Duplicate variable A"
-        );
-    }
-
-    #[test]
-    fn invalid_env_key_is_rendered_without_app_layer_text() {
-        use crate::i18n::{EN_US, ZH_CN};
-        let rows = vec![EnvRow {
-            key: "1BAD".into(),
-            value: "1".into(),
-        }];
-        let error = env_rows_to_map(&rows).unwrap_err();
-        assert_eq!(error.render(&ZH_CN), "环境变量：环境变量名无效：1BAD");
-        assert_eq!(
-            error.render(&EN_US),
-            "Environment variables: Invalid environment variable name: 1BAD"
-        );
     }
 }

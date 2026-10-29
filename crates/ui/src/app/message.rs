@@ -1,6 +1,6 @@
 use super::{DeleteTarget, PrefixStatus, Screen};
-use crate::draft::DraftAction;
 use crate::theme::ThemeMode;
+use application::editor::{DraftAction, EnvAction};
 use application::{Game, LaunchEvent, LoadedData, Runner};
 use std::path::PathBuf;
 use uuid::Uuid;
@@ -93,7 +93,7 @@ pub enum Message {
 
 #[derive(Debug, Clone)]
 pub enum SettingsAction {
-    Env(crate::draft::EnvAction),
+    Env(EnvAction),
     DefaultRunner(Option<uuid::Uuid>),
     PrefixRoot(PathBuf),
     EnableEsync(bool),

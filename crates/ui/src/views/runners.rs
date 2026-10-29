@@ -2,11 +2,10 @@ use crate::app::{App, DeleteTarget, Message};
 use crate::styles;
 use crate::theme::font;
 use crate::widgets::{Tone, badges, controls, layout, middle_truncate, truncate};
-use application::Runner;
+use application::{Runner, RunnerKind};
 use iced::font::Weight;
 use iced::widget::{column, row, scrollable, text};
 use iced::{Element, Length};
-use launcher_core::RunnerKind;
 
 pub fn view(app: &App) -> Element<'_, Message> {
     if app.pending.loading {

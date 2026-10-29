@@ -1,4 +1,5 @@
 use super::{App, DeleteTarget, ErrorNotice, Message, NoticeKind, Screen, SettingsAction};
+use application::editor::{DraftAction, GameDraft, apply_env_action, env_rows_to_map};
 use application::{LaunchEvent, LaunchRequest, LaunchTuning};
 use iced::Task;
 use std::collections::BTreeMap;
@@ -16,7 +17,7 @@ impl App {
                     .games
                     .iter()
                     .find(|game| game.id == id)
-                    .map(crate::draft::GameDraft::from_game);
+                    .map(GameDraft::from_game);
                 self.touch_draft();
                 self.prefix_status = None;
                 self.screen = Screen::GameDetail;
@@ -39,10 +40,10 @@ impl App {
             Message::Draft(action) => {
                 let affects_prefix = matches!(
                     &action,
-                    crate::draft::DraftAction::Runner(_)
-                        | crate::draft::DraftAction::Prefix(_)
-                        | crate::draft::DraftAction::ClearPrefix
-                        | crate::draft::DraftAction::Arch(_)
+                    DraftAction::Runner(_)
+                        | DraftAction::Prefix(_)
+                        | DraftAction::ClearPrefix
+                        | DraftAction::Arch(_)
                 );
                 let refresh_id = self.draft.as_ref().map(|draft| draft.id);
                 if let Some(draft) = &mut self.draft {
@@ -297,7 +298,7 @@ impl App {
                 );
                 match action {
                     SettingsAction::Env(action) => {
-                        crate::draft::apply_env_action(&mut self.settings.global_env_rows, action);
+                        apply_env_action(&mut self.settings.global_env_rows, action);
                     }
                     SettingsAction::DefaultRunner(id) => {
                         self.settings.default_runner_id = id;
@@ -642,13 +643,12 @@ impl App {
                     self.error = Some(ErrorNotice::new(self.tr("app.error.database_unavailable")));
                     return Task::none();
                 };
-                let global_env = match crate::draft::env_rows_to_map(&self.settings.global_env_rows)
-                {
+                let global_env = match env_rows_to_map(&self.settings.global_env_rows) {
                     Ok(env) => env,
                     Err(error) => {
                         self.error = Some(
                             ErrorNotice::new(self.tr("app.error.global_env_invalid"))
-                                .with_detail(error.render(self.lang)),
+                                .with_detail(crate::i18n::errors::draft_error(self.lang, &error)),
                         );
                         return Task::none();
                     }

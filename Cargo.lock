@@ -3852,7 +3852,6 @@ dependencies = [
  "application",
  "chrono",
  "iced",
- "launcher-core",
  "rfd",
  "serde_json",
  "tokio",

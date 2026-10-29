@@ -1,6 +1,5 @@
 use crate::i18n::{Lang, tr};
-use application::MonitorOutput;
-use launcher_core::{Arch, DisplayBackend, GamescopeMode, OverrideMode, Runner};
+use application::{Arch, DisplayBackend, GamescopeMode, MonitorOutput, OverrideMode, Runner};
 use std::fmt;
 use uuid::Uuid;
 

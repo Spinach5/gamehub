@@ -1,16 +1,15 @@
 use crate::app::{App, DeleteTarget, Message, Screen};
 use crate::dialogs::DialogIntent;
-use crate::draft::{ArgsAction, DllAction, DraftAction, EnvAction, GameDraft};
 use crate::styles;
 use crate::theme::font;
 use crate::widgets::{Tone, badges, controls, cover, layout, path_text};
-use application::PrefixStatus;
+use application::editor::{ArgsAction, DllAction, DraftAction, EnvAction, GameDraft};
+use application::{GamescopeMode, PrefixStatus};
 use iced::font::Weight;
 use iced::widget::{
     column, container, horizontal_space, pick_list, row, scrollable, text, text_input,
 };
 use iced::{Element, Length};
-use launcher_core::GamescopeMode;
 use uuid::Uuid;
 
 pub fn view(app: &App) -> Element<'_, Message> {
@@ -700,7 +699,7 @@ fn prefix_status_label(status: Option<&PrefixStatus>, lang: crate::i18n::Lang) -
 #[cfg(test)]
 mod tests {
     use super::*;
-    use launcher_core::Arch;
+    use application::Arch;
 
     #[test]
     fn prefix_status_maps_to_tones() {
