@@ -247,6 +247,8 @@ fn runner_card<'a>(app: &'a App, draft: &'a GameDraft) -> Element<'a, Message> {
     .spacing(10)
     .width(Length::Fill);
 
+    content = content.push(components_block(app, draft.id, &prefix_path));
+
     if draft.is_new {
         content = content.push(layout::faint(app.tr("detail.save_first_compat")).size(11));
     }
@@ -262,6 +264,171 @@ fn runner_card<'a>(app: &'a App, draft: &'a GameDraft) -> Element<'a, Message> {
     }
 
     layout::section_card(app.tr("detail.section.compat"), None, content)
+}
+
+fn components_block<'a>(
+    app: &'a App,
+    game_id: Uuid,
+    prefix_path: &std::path::Path,
+) -> Element<'a, Message> {
+    const TAIL_PREVIEW_LINES: usize = 4;
+
+    let job = app.components.get(&game_id);
+    let is_new = app.draft.as_ref().is_some_and(|draft| draft.is_new);
+    let can_install = !is_new
+        && job.is_none()
+        && app.prefix_status == Some(PrefixStatus::Initialized)
+        && app.winetricks_path.is_some();
+
+    let mut header = row![
+        text(app.tr("detail.components"))
+            .font(font(Weight::Semibold))
+            .size(13),
+        horizontal_space(),
+    ]
+    .spacing(8)
+    .align_y(iced::Alignment::Center)
+    .width(Length::Fill);
+    if app.winetricks_path.is_none() {
+        header = header.push(badges::badge(
+            app.tr("detail.components.winetricks_missing"),
+            Tone::Warning,
+        ));
+    }
+
+    let installed_text = match app.installed_verbs.get(prefix_path) {
+        Some(verbs) if !verbs.is_empty() => verbs.join(" · "),
+        _ => app.tr("detail.components.none").to_owned(),
+    };
+    let preset = crate::widgets::component_choice(app.lang, &app.component_preset);
+    let presets = crate::widgets::component_choices(app.lang);
+    let preset_install = controls::secondary_small(app.tr("detail.components.install"))
+        .on_press_maybe(can_install.then(|| Message::InstallComponent {
+            game_id,
+            verb: app.component_preset.clone(),
+        }));
+    let custom_install = controls::secondary_small(app.tr("detail.components.install"))
+        .on_press_maybe(
+            (can_install && !app.component_verb.trim().is_empty()).then(|| {
+                Message::InstallComponent {
+                    game_id,
+                    verb: app.component_verb.clone(),
+                }
+            }),
+        );
+
+    let mut content = column![
+        header,
+        layout::faint(app.tr("detail.components.hint")).size(11),
+        layout::field(
+            app.tr("detail.components.installed"),
+            layout::faint(installed_text)
+                .size(11)
+                .width(Length::Fill)
+                .wrapping(iced::widget::text::Wrapping::WordOrGlyph)
+        ),
+        layout::field(
+            app.tr("detail.components.preset"),
+            row![
+                pick_list(presets, Some(preset), |choice| {
+                    Message::ComponentPresetChanged(choice.value)
+                })
+                .style(styles::pick_list)
+                .menu_style(styles::menu)
+                .width(Length::Fill),
+                preset_install,
+            ]
+            .spacing(8)
+            .align_y(iced::Alignment::Center)
+            .width(Length::Fill)
+        ),
+        layout::field(
+            app.tr("detail.components.custom"),
+            row![
+                text_input(
+                    app.tr("detail.components.custom_placeholder"),
+                    app.component_verb.as_str(),
+                )
+                .on_input(Message::ComponentVerbChanged)
+                .style(styles::text_input)
+                .width(Length::Fill),
+                custom_install,
+            ]
+            .spacing(8)
+            .align_y(iced::Alignment::Center)
+            .width(Length::Fill)
+        ),
+    ]
+    .spacing(8)
+    .width(Length::Fill);
+
+    if is_new {
+        content = content.push(layout::faint(app.tr("detail.components.save_first")).size(11));
+    }
+    if !is_new
+        && app.winetricks_path.is_some()
+        && app.prefix_status != Some(PrefixStatus::Initialized)
+    {
+        content = content.push(layout::faint(app.tr("detail.components.prefix_required")).size(11));
+    }
+
+    if let Some(job) = job {
+        let status = if job.cancelling {
+            app.tr("detail.components.cancelling").to_owned()
+        } else {
+            app.tr_args("detail.components.installing", &[("verb", &job.verb)])
+        };
+        let mut status_row = row![
+            text(status).font(font(Weight::Semibold)).size(12),
+            horizontal_space(),
+        ]
+        .spacing(8)
+        .align_y(iced::Alignment::Center)
+        .width(Length::Fill);
+        if !job.cancelling {
+            status_row = status_row.push(
+                controls::danger_small(app.tr("detail.components.cancel"))
+                    .on_press_maybe(job.process_group.map(|_| Message::CancelComponent(game_id))),
+            );
+        }
+
+        let tail: Vec<&str> = job
+            .tail
+            .iter()
+            .rev()
+            .take(TAIL_PREVIEW_LINES)
+            .rev()
+            .map(String::as_str)
+            .collect();
+        let tail_text = if tail.is_empty() {
+            app.tr("detail.components.waiting").to_owned()
+        } else {
+            tail.join("\n")
+        };
+        let panel = container(
+            text(tail_text)
+                .font(iced::Font::MONOSPACE)
+                .size(11)
+                .wrapping(iced::widget::text::Wrapping::None)
+                .style(|theme| iced::widget::text::Style {
+                    color: Some(crate::theme::tokens(theme).log_text),
+                }),
+        )
+        .padding(10)
+        .width(Length::Fill)
+        .style(styles::log_panel);
+
+        content = content.push(status_row).push(panel).push(
+            layout::faint(format!(
+                "{}: {}",
+                app.tr("detail.components.log"),
+                app.paths.component_log_path(game_id).display()
+            ))
+            .size(10),
+        );
+    }
+
+    content.into()
 }
 
 fn display_card<'a>(app: &'a App, draft: &'a GameDraft) -> Element<'a, Message> {

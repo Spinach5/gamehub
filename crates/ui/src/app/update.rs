@@ -1,6 +1,9 @@
-use super::{App, DeleteTarget, ErrorNotice, Message, NoticeKind, Screen, SettingsAction};
+use super::{
+    App, COMPONENT_TAIL_LINES, ComponentJob, DeleteTarget, ErrorNotice, Message, NoticeKind,
+    Screen, SettingsAction,
+};
 use application::editor::{DraftAction, GameDraft, apply_env_action, env_rows_to_map};
-use application::{LaunchEvent, LaunchRequest, LaunchTuning};
+use application::{ComponentEvent, LaunchEvent, LaunchRequest, LaunchTuning, PrefixStatus};
 use iced::Task;
 use std::collections::BTreeMap;
 
@@ -21,7 +24,11 @@ impl App {
                 self.touch_draft();
                 self.prefix_status = None;
                 self.screen = Screen::GameDetail;
-                Task::batch([self.refresh_prefix_status(id), self.refresh_monitors()])
+                Task::batch([
+                    self.refresh_prefix_status(id),
+                    self.refresh_monitors(),
+                    self.refresh_installed_verbs(id),
+                ])
             }
             Message::NewGame => {
                 self.draft = None;
@@ -50,7 +57,10 @@ impl App {
                 match (affects_prefix, refresh_id) {
                     (true, Some(id)) => {
                         self.prefix_status = None;
-                        self.refresh_prefix_status(id)
+                        Task::batch([
+                            self.refresh_prefix_status(id),
+                            self.refresh_installed_verbs(id),
+                        ])
                     }
                     _ => Task::none(),
                 }
@@ -304,6 +314,156 @@ impl App {
                 }
                 Task::none()
             }
+            Message::ComponentPresetChanged(verb) => {
+                self.component_preset = verb;
+                Task::none()
+            }
+            Message::ComponentVerbChanged(verb) => {
+                self.component_verb = verb;
+                Task::none()
+            }
+            Message::InstallComponent { game_id, verb } => {
+                if self.pending.loading || self.pending.saving || self.pending.deleting {
+                    return Task::none();
+                }
+                if self
+                    .draft
+                    .as_ref()
+                    .is_some_and(|draft| draft.id == game_id && draft.is_new)
+                {
+                    self.error = Some(ErrorNotice::new(
+                        self.tr("app.error.save_game_first_component"),
+                    ));
+                    return Task::none();
+                }
+                let Some(winetricks) = self.winetricks_path.clone() else {
+                    self.error = Some(ErrorNotice::new(self.tr("app.error.winetricks_missing")));
+                    return Task::none();
+                };
+                if self.prefix_status != Some(PrefixStatus::Initialized) {
+                    self.error = Some(ErrorNotice::new(
+                        self.tr("app.error.component_prefix_required"),
+                    ));
+                    return Task::none();
+                }
+                if self.components.contains_key(&game_id) {
+                    return Task::none();
+                }
+                let game = match self.game_for_actions(game_id) {
+                    Ok(game) => game,
+                    Err(error) => {
+                        self.error = Some(ErrorNotice::new(error));
+                        return Task::none();
+                    }
+                };
+                let plan = match self.prefix_plan_for(&game) {
+                    Ok(plan) => plan,
+                    Err(error) => {
+                        self.error = Some(error);
+                        return Task::none();
+                    }
+                };
+                if self.running.values().any(|path| path == &plan.path)
+                    || self
+                        .components
+                        .values()
+                        .any(|job| job.plan.path == plan.path)
+                {
+                    self.error = Some(ErrorNotice::new(self.tr("app.error.component_running")));
+                    return Task::none();
+                }
+                let verb = verb.trim().to_owned();
+                if verb.is_empty() || verb.starts_with('-') {
+                    self.error = Some(ErrorNotice::new(
+                        self.tr("app.error.component_verb_invalid"),
+                    ));
+                    return Task::none();
+                }
+                self.components.insert(
+                    game_id,
+                    ComponentJob {
+                        plan: plan.clone(),
+                        verb: verb.clone(),
+                        process_group: None,
+                        cancelling: false,
+                        tail: Vec::new(),
+                    },
+                );
+                let log_path = self.paths.component_log_path(game_id);
+                component_task(plan, winetricks, verb, log_path, game_id, self.lang)
+            }
+            Message::ComponentEvent { game_id, event } => {
+                if let Some(job) = self.components.get_mut(&game_id) {
+                    match event {
+                        ComponentEvent::Started { process_group } => {
+                            job.process_group = Some(process_group);
+                        }
+                        ComponentEvent::Line(line) => push_component_tail(&mut job.tail, line),
+                    }
+                }
+                Task::none()
+            }
+            Message::ComponentFinished { game_id, outcome } => {
+                let Some(job) = self.components.remove(&game_id) else {
+                    return Task::none();
+                };
+                if !outcome.success && !job.cancelling {
+                    let detail = match outcome.exit_code {
+                        Some(code) => format!("{} · exit {code}", outcome.verb),
+                        None => outcome.verb,
+                    };
+                    self.error = Some(
+                        ErrorNotice::new(self.tr("app.error.component_failed")).with_detail(detail),
+                    );
+                }
+                let prefix = job.plan.path.clone();
+                Task::perform(application::installed_components(job.plan), move |verbs| {
+                    Message::ComponentsLoaded {
+                        prefix: prefix.clone(),
+                        verbs,
+                    }
+                })
+            }
+            Message::ComponentFailed { game_id, error } => {
+                self.components.remove(&game_id);
+                self.error = Some(
+                    ErrorNotice::new(self.tr("app.error.component_failed")).with_detail(error),
+                );
+                Task::none()
+            }
+            Message::CancelComponent(game_id) => {
+                let Some(job) = self.components.get_mut(&game_id) else {
+                    return Task::none();
+                };
+                let Some(process_group) = job.process_group else {
+                    return Task::none();
+                };
+                job.cancelling = true;
+                let lang = self.lang;
+                Task::perform(
+                    application::cancel_component(process_group),
+                    move |result| Message::ComponentCancelFinished {
+                        game_id,
+                        result: result
+                            .map_err(|error| crate::i18n::errors::app_error(lang, &error)),
+                    },
+                )
+            }
+            Message::ComponentCancelFinished { game_id, result } => {
+                if let Err(error) = result {
+                    if let Some(job) = self.components.get_mut(&game_id) {
+                        job.cancelling = false;
+                    }
+                    self.error = Some(
+                        ErrorNotice::new(self.tr("app.error.component_cancel")).with_detail(error),
+                    );
+                }
+                Task::none()
+            }
+            Message::ComponentsLoaded { prefix, verbs } => {
+                self.installed_verbs.insert(prefix, verbs);
+                Task::none()
+            }
             Message::RefreshPrefixStatus(game_id) => self.refresh_prefix_status(game_id),
             Message::PrefixStatusLoaded { game_id, status } => {
                 if self.selected_game == Some(game_id) {
@@ -519,6 +679,19 @@ impl App {
                 let Some(target) = self.confirming.clone() else {
                     return Task::none();
                 };
+                if match &target {
+                    DeleteTarget::Game(id) => self.components.contains_key(id),
+                    DeleteTarget::Runner(id) => self
+                        .components
+                        .values()
+                        .any(|job| job.plan.runner.id == *id),
+                    DeleteTarget::Prefix { path, .. } => {
+                        self.components.values().any(|job| job.plan.path == *path)
+                    }
+                } {
+                    self.error = Some(ErrorNotice::new(self.tr("app.error.component_running")));
+                    return Task::none();
+                }
                 if let DeleteTarget::Prefix { game_id, path } = &target {
                     let saved = self
                         .games
@@ -656,6 +829,14 @@ impl App {
                 };
                 if self.running.values().any(|path| path == &prefix_plan.path) {
                     self.error = Some(ErrorNotice::new(self.tr("app.error.prefix_busy")));
+                    return Task::none();
+                }
+                if self
+                    .components
+                    .values()
+                    .any(|job| job.plan.path == prefix_plan.path)
+                {
+                    self.error = Some(ErrorNotice::new(self.tr("app.error.component_running")));
                     return Task::none();
                 }
 
@@ -855,6 +1036,14 @@ fn save_language(
     })
 }
 
+fn push_component_tail(tail: &mut Vec<String>, line: String) {
+    tail.push(line);
+    if tail.len() > COMPONENT_TAIL_LINES {
+        let excess = tail.len() - COMPONENT_TAIL_LINES;
+        tail.drain(..excess);
+    }
+}
+
 fn launch_task(
     service: application::AppService,
     request: LaunchRequest,
@@ -888,6 +1077,58 @@ fn launch_task(
     }))
 }
 
+fn component_task(
+    plan: application::PrefixPlan,
+    winetricks: std::path::PathBuf,
+    verb: String,
+    log_path: std::path::PathBuf,
+    game_id: uuid::Uuid,
+    lang: crate::i18n::Lang,
+) -> Task<Message> {
+    Task::stream(iced::stream::channel(64, move |mut output| async move {
+        use iced::futures::SinkExt;
+
+        let (events, mut receiver) = tokio::sync::mpsc::unbounded_channel();
+        let handle = tokio::spawn(async move {
+            application::install_component(plan, winetricks, &verb, log_path, events).await
+        });
+
+        while let Some(event) = receiver.recv().await {
+            if output
+                .send(Message::ComponentEvent { game_id, event })
+                .await
+                .is_err()
+            {
+                return;
+            }
+        }
+
+        match handle.await {
+            Ok(Ok(outcome)) => {
+                let _ = output
+                    .send(Message::ComponentFinished { game_id, outcome })
+                    .await;
+            }
+            Ok(Err(error)) => {
+                let _ = output
+                    .send(Message::ComponentFailed {
+                        game_id,
+                        error: crate::i18n::errors::app_error(lang, &error),
+                    })
+                    .await;
+            }
+            Err(error) => {
+                let _ = output
+                    .send(Message::ComponentFailed {
+                        game_id,
+                        error: error.to_string(),
+                    })
+                    .await;
+            }
+        }
+    }))
+}
+
 #[cfg(test)]
 mod tests {
     use crate::app::{App, ErrorNotice, Message, NoticeKind, ServiceError, SettingsAction};
@@ -901,6 +1142,72 @@ mod tests {
         app.settings.language = LanguagePref::Fixed(&crate::i18n::ZH_CN);
         app.lang = &crate::i18n::ZH_CN;
         app
+    }
+
+    #[test]
+    fn component_tail_keeps_only_the_latest_lines() {
+        let mut tail = Vec::new();
+        for index in 0..(super::COMPONENT_TAIL_LINES + 5) {
+            super::push_component_tail(&mut tail, format!("line {index}"));
+        }
+
+        assert_eq!(tail.len(), super::COMPONENT_TAIL_LINES);
+        assert_eq!(tail.first().map(String::as_str), Some("line 5"));
+    }
+
+    #[test]
+    fn install_component_without_winetricks_raises_a_notice() {
+        let mut app = app();
+        app.winetricks_path = None;
+
+        let _ = app.update(Message::InstallComponent {
+            game_id: uuid::Uuid::new_v4(),
+            verb: "vcrun2019".to_owned(),
+        });
+
+        let error = app
+            .error
+            .as_ref()
+            .expect("missing winetricks should surface a notice");
+        assert_eq!(error.title, app.tr("app.error.winetricks_missing"));
+        assert!(app.components.is_empty());
+    }
+
+    #[test]
+    fn install_component_requires_a_saved_game() {
+        let mut app = app();
+        let draft = application::editor::GameDraft::new(PathBuf::from("/tmp/gamehub/exe/game.exe"));
+        let game_id = draft.id;
+        app.draft = Some(draft);
+        app.winetricks_path = Some(PathBuf::from("/usr/bin/winetricks"));
+
+        let _ = app.update(Message::InstallComponent {
+            game_id,
+            verb: "vcrun2019".to_owned(),
+        });
+
+        let error = app
+            .error
+            .as_ref()
+            .expect("unsaved draft should surface a notice");
+        assert_eq!(error.title, app.tr("app.error.save_game_first_component"));
+        assert!(app.components.is_empty());
+    }
+
+    #[test]
+    fn components_loaded_records_verbs_per_prefix() {
+        let mut app = app();
+        let prefix = PathBuf::from("/tmp/gamehub/prefixes/one");
+
+        let _ = app.update(Message::ComponentsLoaded {
+            prefix: prefix.clone(),
+            verbs: vec!["corefonts".to_owned(), "vcrun2019".to_owned()],
+        });
+
+        assert_eq!(
+            app.installed_verbs.get(&prefix).map(Vec::as_slice),
+            Some(["corefonts".to_owned(), "vcrun2019".to_owned()].as_slice())
+        );
     }
 
     #[test]

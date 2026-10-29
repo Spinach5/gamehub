@@ -27,6 +27,10 @@ pub enum AppError {
     RunnerInUse(u64),
     #[error("已启用 DXVK-NVAPI 自动安装，但未选择目录")]
     DxvkNvapiSourceMissing,
+    #[error("无效的 winetricks 组件: {0}")]
+    ComponentVerbInvalid(String),
+    #[error("winetricks 执行失败: {0}")]
+    ComponentIo(#[source] std::io::Error),
     #[error("封面必须是 PNG / JPEG / WebP / BMP 图片: {0}")]
     CoverUnsupportedFormat(PathBuf),
     #[error("无法读取封面图片 {path}: {detail}")]

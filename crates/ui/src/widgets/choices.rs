@@ -120,6 +120,27 @@ pub fn override_mode_choice(lang: Lang, value: OverrideMode) -> Choice<OverrideM
         })
 }
 
+pub fn component_choices(lang: Lang) -> Vec<Choice<String>> {
+    [
+        ("vcrun2019", "detail.component.vcrun2019"),
+        ("dotnet48", "detail.component.dotnet48"),
+        ("corefonts", "detail.component.corefonts"),
+        ("d3dx9", "detail.component.d3dx9"),
+        ("xact", "detail.component.xact"),
+        ("msxml6", "detail.component.msxml6"),
+    ]
+    .into_iter()
+    .map(|(verb, key)| Choice::new(verb.to_owned(), tr(lang, key)))
+    .collect()
+}
+
+pub fn component_choice(lang: Lang, verb: &str) -> Choice<String> {
+    component_choices(lang)
+        .into_iter()
+        .find(|choice| choice.value == verb)
+        .unwrap_or_else(|| Choice::new(verb.to_owned(), verb.to_owned()))
+}
+
 pub fn monitor_choices(lang: Lang, outputs: &[MonitorOutput]) -> Vec<Choice<Option<String>>> {
     let mut choices = vec![Choice::new(None, tr(lang, "choices.monitor.auto"))];
     choices.extend(
@@ -173,5 +194,11 @@ mod tests {
         assert_eq!(arch_choices(&ZH_CN)[0].label, "64 位 (win64)");
         assert_eq!(arch_choices(&EN_US)[0].label, "64-bit (win64)");
         assert_eq!(backend_choices(&EN_US)[0].label, "Automatic");
+        assert_eq!(component_choices(&ZH_CN)[0].value, "vcrun2019");
+        assert_eq!(
+            component_choices(&EN_US)[0].label,
+            "Visual C++ runtime 2015-2019"
+        );
+        assert_eq!(component_choice(&EN_US, "customverb").value, "customverb");
     }
 }

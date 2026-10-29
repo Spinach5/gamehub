@@ -1,5 +1,6 @@
 pub mod editor;
 
+mod components;
 mod data;
 mod delete;
 mod error;
@@ -10,6 +11,9 @@ mod runners;
 mod service;
 mod settings;
 
+pub use components::{
+    ComponentEvent, ComponentOutcome, cancel_component, install_component, installed_components,
+};
 pub use data::LoadedData;
 pub use delete::DeleteTarget;
 pub use error::AppError;

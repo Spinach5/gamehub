@@ -13,6 +13,7 @@ pub struct LoadedData {
     pub monitors: Vec<MonitorOutput>,
     pub gamescope_path: Option<PathBuf>,
     pub mangohud_path: Option<PathBuf>,
+    pub winetricks_path: Option<PathBuf>,
 }
 
 impl AppService {
@@ -28,6 +29,7 @@ impl AppService {
                 monitors: display::list_outputs(),
                 gamescope_path: display::gamescope_path(),
                 mangohud_path: display::mangohud_path(),
+                winetricks_path: ::prefix::winetricks_path(),
             })
         })
         .await?

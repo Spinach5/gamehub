@@ -45,6 +45,12 @@ impl AppPaths {
     pub fn game_log_path(&self, game_id: uuid::Uuid) -> PathBuf {
         self.logs_dir.join("games").join(format!("{game_id}.log"))
     }
+
+    pub fn component_log_path(&self, game_id: uuid::Uuid) -> PathBuf {
+        self.logs_dir
+            .join("winetricks")
+            .join(format!("{game_id}.log"))
+    }
 }
 
 #[cfg(test)]
@@ -99,6 +105,15 @@ mod tests {
         assert_eq!(
             paths.game_log_path(uuid::Uuid::nil()),
             PathBuf::from("/data/gamehub/logs/games/00000000-0000-0000-0000-000000000000.log")
+        );
+    }
+
+    #[test]
+    fn component_log_path_is_under_logs_winetricks() {
+        let paths = AppPaths::for_root(PathBuf::from("/data/gamehub"));
+        assert_eq!(
+            paths.component_log_path(uuid::Uuid::nil()),
+            PathBuf::from("/data/gamehub/logs/winetricks/00000000-0000-0000-0000-000000000000.log")
         );
     }
 }

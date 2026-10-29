@@ -22,6 +22,18 @@ pub use application::{
 pub use message::{Message, SettingsAction};
 
 pub const LOG_TAIL_LINES: usize = 1000;
+pub const COMPONENT_TAIL_LINES: usize = 400;
+
+/// An in-flight winetricks run. The plan is kept so the installed list can be
+/// refreshed against the same prefix even if the draft changes meanwhile.
+#[derive(Debug, Clone)]
+pub struct ComponentJob {
+    pub plan: PrefixPlan,
+    pub verb: String,
+    pub process_group: Option<u32>,
+    pub cancelling: bool,
+    pub tail: Vec<String>,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Screen {
@@ -288,11 +300,16 @@ pub struct App {
     pub monitors: Vec<MonitorOutput>,
     pub gamescope_path: Option<PathBuf>,
     pub mangohud_path: Option<PathBuf>,
+    pub winetricks_path: Option<PathBuf>,
     pub pending: PendingState,
     pub running: HashMap<Uuid, PathBuf>, // game id -> prefix path
     pub starting: HashSet<Uuid>,
     pub stopping: HashSet<Uuid>,
     pub dxvk_dir: Option<PathBuf>,
+    pub components: HashMap<Uuid, ComponentJob>,
+    pub installed_verbs: HashMap<PathBuf, Vec<String>>,
+    pub component_preset: String,
+    pub component_verb: String,
     pub logs_game: Option<Uuid>,
     pub logs_content: String,
     pub logs_error: Option<String>,
@@ -328,6 +345,7 @@ impl App {
             monitors: Vec::new(),
             gamescope_path: None,
             mangohud_path: None,
+            winetricks_path: None,
             pending: PendingState {
                 loading: true,
                 ..PendingState::default()
@@ -336,6 +354,10 @@ impl App {
             starting: HashSet::new(),
             stopping: HashSet::new(),
             dxvk_dir: None,
+            components: HashMap::new(),
+            installed_verbs: HashMap::new(),
+            component_preset: "vcrun2019".to_string(),
+            component_verb: String::new(),
             logs_game: None,
             logs_content: String::new(),
             logs_error: None,
@@ -384,6 +406,7 @@ impl App {
         self.monitors = data.monitors;
         self.gamescope_path = data.gamescope_path;
         self.mangohud_path = data.mangohud_path;
+        self.winetricks_path = data.winetricks_path;
 
         match SettingsState::from_map(&data.settings_map, &self.paths.default_prefix_root) {
             Ok(settings) => {
@@ -697,6 +720,29 @@ impl App {
         })
     }
 
+    fn refresh_installed_verbs(&self, game_id: Uuid) -> iced::Task<Message> {
+        let game = match self.game_for_actions(game_id) {
+            Ok(game) => game,
+            Err(_) => {
+                return iced::Task::none();
+            }
+        };
+        let plan = match self.prefix_plan_for(&game) {
+            Ok(plan) => plan,
+            Err(_) => {
+                return iced::Task::none();
+            }
+        };
+        let prefix = plan.path.clone();
+
+        iced::Task::perform(application::installed_components(plan), move |verbs| {
+            Message::ComponentsLoaded {
+                prefix: prefix.clone(),
+                verbs,
+            }
+        })
+    }
+
     fn sort_games(&mut self) {
         self.games.sort_by_key(|game| game.name.to_lowercase());
     }
@@ -888,6 +934,7 @@ mod tests {
             monitors: Vec::new(),
             gamescope_path: None,
             mangohud_path: None,
+            winetricks_path: None,
         };
 
         let _ = app.apply_loaded(data);
@@ -1317,6 +1364,7 @@ mod tests {
             monitors: Vec::new(),
             gamescope_path: None,
             mangohud_path: None,
+            winetricks_path: None,
         }))
         .await;
 

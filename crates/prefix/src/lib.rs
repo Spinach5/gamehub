@@ -3,6 +3,7 @@ mod error;
 mod initialize;
 mod nvapi;
 mod status;
+mod winetricks;
 
 #[cfg(test)]
 mod test_support;
@@ -15,6 +16,9 @@ pub use nvapi::{DxvkNvapiSource, install_dxvk_nvapi};
 pub use status::{
     PrefixPlan, PrefixStatus, default_prefix_path, detect_arch, plan_for_game, resolve_prefix_path,
     status, windows_root,
+};
+pub use winetricks::{
+    WinetricksCommand, command_for, installed_verbs, normalize_verb, winetricks_path,
 };
 
 use std::path::Path;

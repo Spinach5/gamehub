@@ -51,6 +51,33 @@ pub enum Message {
         game_id: uuid::Uuid,
         result: Result<(), String>,
     },
+    ComponentPresetChanged(String),
+    ComponentVerbChanged(String),
+    InstallComponent {
+        game_id: Uuid,
+        verb: String,
+    },
+    ComponentEvent {
+        game_id: Uuid,
+        event: application::ComponentEvent,
+    },
+    ComponentFinished {
+        game_id: Uuid,
+        outcome: application::ComponentOutcome,
+    },
+    ComponentFailed {
+        game_id: Uuid,
+        error: String,
+    },
+    CancelComponent(Uuid),
+    ComponentCancelFinished {
+        game_id: Uuid,
+        result: Result<(), String>,
+    },
+    ComponentsLoaded {
+        prefix: PathBuf,
+        verbs: Vec<String>,
+    },
     RefreshPrefixStatus(uuid::Uuid),
     PrefixStatusLoaded {
         game_id: uuid::Uuid,

@@ -35,6 +35,14 @@ pub enum PrefixError {
     },
     #[error("reg add timed out for {dll}")]
     RegAddTimeout { dll: String },
+    #[error("invalid winetricks verb: {0}")]
+    WinetricksVerbInvalid(String),
+    #[error("failed to start winetricks {program:?}: {source}")]
+    WinetricksSpawn {
+        program: std::path::PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
     #[error("refusing to delete a directory that is not an initialized prefix: {0:?}")]
     RefusingToDeleteNonPrefix(PathBuf),
 }

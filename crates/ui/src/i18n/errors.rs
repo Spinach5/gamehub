@@ -32,6 +32,14 @@ pub fn app_error(lang: Lang, error: &AppError) -> String {
             &[("count", &count.to_string())],
         ),
         AppError::DxvkNvapiSourceMissing => tr(lang, "errors.dxvk_nvapi_source_missing").to_owned(),
+        AppError::ComponentVerbInvalid(verb) => {
+            tr_args(lang, "errors.component_verb_invalid", &[("verb", verb)])
+        }
+        AppError::ComponentIo(source) => tr_args(
+            lang,
+            "errors.component_io",
+            &[("detail", &source.to_string())],
+        ),
         AppError::CoverUnsupportedFormat(path) => tr_args(
             lang,
             "errors.cover_unsupported",
