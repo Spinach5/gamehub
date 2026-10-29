@@ -24,3 +24,6 @@ serde_json.workspace = true
 uuid.workspace = true
 tracing.workspace = true
 chrono.workspace = true
+
+[dev-dependencies]
+iced_runtime = "0.13"

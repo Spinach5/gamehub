@@ -170,6 +170,7 @@ mod tests {
             args: Vec::new(),
             created_at: 0,
             last_played_at: None,
+            playtime_seconds: 0,
         };
         assert_eq!(
             resolve_prefix_path(&game, Path::new("/data/prefixes")),
@@ -194,6 +195,7 @@ mod tests {
             args: Vec::new(),
             created_at: 0,
             last_played_at: None,
+            playtime_seconds: 0,
         };
         let plan = plan_for_game(
             &game,
@@ -221,6 +223,7 @@ mod tests {
             args: Vec::new(),
             created_at: 0,
             last_played_at: None,
+            playtime_seconds: 0,
         };
         let plan = plan_for_game(
             &game,

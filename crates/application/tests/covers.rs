@@ -23,6 +23,7 @@ fn game(dir: &Path) -> Game {
         args: Vec::new(),
         created_at: 1,
         last_played_at: None,
+        playtime_seconds: 0,
     }
 }
 

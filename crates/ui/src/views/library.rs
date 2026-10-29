@@ -179,6 +179,17 @@ fn game_card<'a>(
             .width(Length::Fill)
             .height(Length::Fixed(13.0))
             .wrapping(iced::widget::text::Wrapping::None),
+            layout::faint(app.tr_args(
+                "library.playtime",
+                &[(
+                    "time",
+                    &crate::widgets::format_playtime(app.lang, game.playtime_seconds),
+                )],
+            ))
+            .size(11)
+            .width(Length::Fill)
+            .height(Length::Fixed(13.0))
+            .wrapping(iced::widget::text::Wrapping::None),
             layout::faint(truncate(&runner_label(app, game), 18))
                 .size(11)
                 .width(Length::Fill)

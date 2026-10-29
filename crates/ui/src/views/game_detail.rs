@@ -542,16 +542,8 @@ fn summary_card<'a>(app: &'a App, draft: &'a GameDraft) -> Element<'a, Message> 
         source
             .is_file()
             .then(|| iced::widget::image::Handle::from_path(source.to_path_buf()))
-    } else if draft.cover_path.is_some() {
-        app.cover_handles.get(&draft.id).cloned().or_else(|| {
-            draft
-                .cover_path
-                .as_deref()
-                .filter(|path| path.is_file())
-                .map(|path| iced::widget::image::Handle::from_path(path.to_path_buf()))
-        })
     } else {
-        None
+        app.cover_handles.get(&draft.id).cloned()
     };
     let has_preview = draft.cover_source.is_some() || draft.cover_path.is_some();
 
@@ -593,6 +585,10 @@ fn summary_card<'a>(app: &'a App, draft: &'a GameDraft) -> Element<'a, Message> 
         fact(
             app.tr("detail.fact.recently_played"),
             crate::widgets::format_timestamp(app.lang, draft.last_played_at),
+        ),
+        fact(
+            app.tr("detail.fact.playtime"),
+            crate::widgets::format_playtime(app.lang, draft.playtime_seconds),
         ),
     ]
     .spacing(6)

@@ -85,6 +85,7 @@
   "detail.env.override_hint": "Use the structured DLL overrides below instead of typing WINEDLLOVERRIDES manually",
   "detail.executable": "Executable",
   "detail.fact.dxvk_source": "DXVK source",
+  "detail.fact.playtime": "Total playtime",
   "detail.fact.recently_played": "Last played",
   "detail.fullscreen": "Fullscreen",
   "detail.fullscreen.hint": "Launch the game in fullscreen",
@@ -197,6 +198,7 @@
   "library.empty.body": "Use the button below to pick an .exe",
   "library.empty.title": "No games yet",
   "library.new_game": "＋ New game",
+  "library.playtime": "Played {time}",
   "library.subtitle.one": "{games} game · {running} running",
   "library.subtitle.other": "{games} games · {running} running",
   "library.title": "Library",
@@ -269,5 +271,9 @@
   "settings.theme.light": "Light",
   "settings.title": "Settings",
   "time.never": "Never",
+  "time.playtime.hours": "{hours} h",
+  "time.playtime.hours_minutes": "{hours} h {minutes} min",
+  "time.playtime.minutes": "{minutes} min",
+  "time.playtime.zero": "0 min",
   "widgets.error": "Error"
 }

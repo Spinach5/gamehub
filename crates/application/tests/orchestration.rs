@@ -60,6 +60,7 @@ fn launch_fixture(kind: RunnerKind, body: &str) -> (tempfile::TempDir, Game, Lau
         args: Vec::new(),
         created_at: 1,
         last_played_at: None,
+        playtime_seconds: 0,
     };
     let runner = Runner {
         id: Uuid::new_v4(),
@@ -120,6 +121,7 @@ fn game(path: PathBuf) -> Game {
         args: Vec::new(),
         created_at: 1,
         last_played_at: None,
+        playtime_seconds: 0,
     }
 }
 
@@ -464,7 +466,7 @@ async fn deleting_game_removes_row_and_rejects_running() {
 }
 
 #[tokio::test]
-async fn launch_runs_fake_wine_and_touches_last_played() {
+async fn launch_records_last_played_and_playtime() {
     use application::SessionType;
     use std::os::unix::fs::PermissionsExt;
 
@@ -477,7 +479,7 @@ async fn launch_runs_fake_wine_and_touches_last_played() {
     fs::write(prefix.join("system.reg"), "#arch=win64\n").unwrap();
 
     let wine = dir.path().join("wine");
-    fs::write(&wine, "#!/bin/sh\nexit 7\n").unwrap();
+    fs::write(&wine, "#!/bin/sh\nsleep 1\nexit 7\n").unwrap();
     let mut permissions = fs::metadata(&wine).unwrap().permissions();
     permissions.set_mode(0o755);
     fs::set_permissions(&wine, permissions).unwrap();
@@ -497,6 +499,7 @@ async fn launch_runs_fake_wine_and_touches_last_played() {
         args: Vec::new(),
         created_at: 1,
         last_played_at: None,
+        playtime_seconds: 0,
     };
     let runner = Runner {
         id: Uuid::new_v4(),
@@ -533,8 +536,11 @@ async fn launch_runs_fake_wine_and_touches_last_played() {
     let outcome = service.clone().launch_game(request).await.unwrap();
     assert_eq!(outcome.exit_code, Some(7));
     assert!(!outcome.success);
+    assert!(outcome.session_seconds >= 1, "{outcome:?}");
+
     let stored = service.load_initial().await.unwrap().games;
     assert!(stored[0].last_played_at.is_some());
+    assert_eq!(stored[0].playtime_seconds, outcome.session_seconds);
 }
 
 #[tokio::test]
@@ -558,7 +564,7 @@ async fn launch_emits_started_then_finished() {
 
     let events = drain_events(&mut rx);
     assert_eq!(events.len(), 2, "{events:?}");
-    assert!(matches!(events[0], LaunchEvent::Started { game_id } if game_id == game.id));
+    assert!(matches!(events[0], LaunchEvent::Started { game_id, .. } if game_id == game.id));
     match &events[1] {
         LaunchEvent::Finished { game_id, outcome } => {
             assert_eq!(*game_id, game.id);
@@ -584,7 +590,7 @@ async fn stopping_a_running_game_terminates_it() {
 
     let mut started = false;
     while let Some(event) = rx.recv().await {
-        if matches!(event, LaunchEvent::Started { game_id } if game_id == game.id) {
+        if matches!(event, LaunchEvent::Started { game_id, .. } if game_id == game.id) {
             started = true;
             break;
         }
@@ -648,7 +654,7 @@ async fn stopping_kills_processes_detached_from_the_launcher_group() {
     let launch = tokio::spawn(service.clone().launch_game_with_events(request, tx));
     let started = loop {
         match rx.recv().await {
-            Some(LaunchEvent::Started { game_id }) if game_id == game.id => break true,
+            Some(LaunchEvent::Started { game_id, .. }) if game_id == game.id => break true,
             Some(_) => {}
             None => break false,
         }
@@ -809,4 +815,49 @@ async fn launch_writes_log_to_request_path() {
 
     let text = read_until(&log, "hello-from-game").await;
     assert!(text.contains("Running command:"), "{text}");
+}
+
+/// Wine runs games under wineserver, so the launcher's wrapper can exit while
+/// the game keeps going. The session must stay alive until the prefix is empty.
+#[tokio::test]
+async fn session_outlives_a_wrapper_that_exits_first() {
+    let _guard = EXEC_LOCK.lock().await;
+    let (dir, game, request) = launch_fixture(
+        RunnerKind::Wine,
+        "#!/bin/sh\nsetsid sleep 30 &\necho $! > game.pid\nexit 0\n",
+    );
+
+    let service = AppService::open_in_memory().unwrap();
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    let launcher = tokio::spawn({
+        let service = service.clone();
+        async move { service.launch_game_with_events(request, tx).await }
+    });
+
+    let started = tokio::time::timeout(std::time::Duration::from_secs(5), rx.recv())
+        .await
+        .expect("started event")
+        .expect("event channel open");
+    assert!(matches!(started, LaunchEvent::Started { game_id, .. } if game_id == game.id));
+
+    assert!(
+        tokio::time::timeout(std::time::Duration::from_millis(800), rx.recv())
+            .await
+            .is_err(),
+        "the quiet wrapper must not end the session while the game runs"
+    );
+
+    let pid = fs::read_to_string(dir.path().join("game.pid")).unwrap();
+    let status = std::process::Command::new("kill")
+        .args(["-9", pid.trim()])
+        .status()
+        .unwrap();
+    assert!(status.success());
+
+    let finished = tokio::time::timeout(std::time::Duration::from_secs(5), rx.recv())
+        .await
+        .expect("finished event once the game is gone")
+        .expect("event channel open");
+    assert!(matches!(finished, LaunchEvent::Finished { .. }));
+    launcher.await.unwrap().unwrap();
 }

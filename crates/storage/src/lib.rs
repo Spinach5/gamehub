@@ -81,6 +81,7 @@ mod tests {
             args: vec!["--windowed".into()],
             created_at: 1_700_000_000,
             last_played_at: Some(1_700_000_100),
+            playtime_seconds: 7_200,
         }
     }
 
@@ -127,6 +128,13 @@ mod tests {
             Some(1_800_000_000)
         );
 
+        db.add_playtime(game.id, 600).unwrap();
+        db.add_playtime(game.id, 300).unwrap();
+        assert_eq!(
+            db.get_game(game.id).unwrap().unwrap().playtime_seconds,
+            7_200 + 900
+        );
+
         db.delete_game(game.id).unwrap();
         assert_eq!(db.get_game(game.id).unwrap(), None);
         assert!(matches!(
@@ -156,6 +164,10 @@ mod tests {
         ));
         assert!(matches!(
             db.touch_last_played(game.id, 1),
+            Err(StorageError::GameNotFound(_))
+        ));
+        assert!(matches!(
+            db.add_playtime(game.id, 1),
             Err(StorageError::GameNotFound(_))
         ));
     }
@@ -270,13 +282,13 @@ mod tests {
     }
 
     #[test]
-    fn in_memory_database_has_v2_schema() {
+    fn in_memory_database_has_v3_schema() {
         let db = Db::open_in_memory().unwrap();
         let version: i64 = db
             .conn
             .query_row("SELECT version FROM schema_version", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(version, 2);
+        assert_eq!(version, 3);
 
         let tables: i64 = db
             .conn
@@ -300,7 +312,7 @@ mod tests {
     }
 
     #[test]
-    fn migrates_v1_database_to_v2() {
+    fn migrates_v1_database_to_v3() {
         let dir = tempdir().unwrap();
         let path = dir.path().join("gamehub.db");
         {
@@ -328,7 +340,7 @@ mod tests {
             .conn
             .query_row("SELECT version FROM schema_version", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(version, 2);
+        assert_eq!(version, 3);
 
         let mut game = db
             .get_game(Uuid::parse_str("11111111-1111-1111-1111-111111111111").unwrap())
@@ -336,6 +348,7 @@ mod tests {
             .unwrap();
         assert_eq!(game.name, "Old");
         assert_eq!(game.cover_path, None);
+        assert_eq!(game.playtime_seconds, 0);
 
         game.cover_path = Some(PathBuf::from("/data/covers/old.png"));
         db.update_game(&game).unwrap();
@@ -346,21 +359,60 @@ mod tests {
     }
 
     #[test]
+    fn migrates_v2_database_to_v3() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("gamehub.db");
+        {
+            let conn = rusqlite::Connection::open(&path).unwrap();
+            conn.execute_batch("CREATE TABLE schema_version (version INTEGER NOT NULL);")
+                .unwrap();
+            conn.execute_batch(crate::schema::V2).unwrap();
+            conn.execute("INSERT INTO schema_version (version) VALUES (2)", [])
+                .unwrap();
+            conn.execute(
+                "INSERT INTO games (id, name, executable_path, working_dir, runner_id,
+                                    prefix_path, arch, display_json, env_overrides_json,
+                                    dll_overrides_json, args_json, created_at, last_played_at,
+                                    cover_path)
+                 VALUES ('22222222-2222-2222-2222-222222222222', 'Kept', '/games/kept.exe',
+                         NULL, NULL, NULL, 'win64',
+                         '{\"backend\":\"auto\",\"monitor\":null,\"resolution\":null,\"refresh_rate\":null,\"fullscreen\":true,\"gamescope\":\"auto\"}',
+                         '{}', '[]', '[]', 1700000000, 1700000100, '/data/covers/kept.png')",
+                [],
+            )
+            .unwrap();
+        }
+
+        let db = Db::open(&path).unwrap();
+        let game = db
+            .get_game(Uuid::parse_str("22222222-2222-2222-2222-222222222222").unwrap())
+            .unwrap()
+            .unwrap();
+        assert_eq!(game.name, "Kept");
+        assert_eq!(game.last_played_at, Some(1_700_000_100));
+        assert_eq!(
+            game.cover_path,
+            Some(PathBuf::from("/data/covers/kept.png"))
+        );
+        assert_eq!(game.playtime_seconds, 0);
+    }
+
+    #[test]
     fn newer_schema_is_rejected() {
         let dir = tempdir().unwrap();
         let path = dir.path().join("gamehub.db");
         {
             let db = Db::open(&path).unwrap();
             db.conn
-                .execute("UPDATE schema_version SET version = 3", [])
+                .execute("UPDATE schema_version SET version = 4", [])
                 .unwrap();
         }
 
         let result = Db::open(&path);
         match result {
             Err(StorageError::UnsupportedSchema {
-                found: 3,
-                supported: 2,
+                found: 4,
+                supported: 3,
             }) => {}
             Err(other) => panic!("unexpected error: {other:?}"),
             Ok(_) => panic!("expected unsupported schema error"),

@@ -39,6 +39,7 @@ pub struct GameDraft {
     pub args_rows: Vec<String>,
     pub created_at: i64,
     pub last_played_at: Option<i64>,
+    pub playtime_seconds: i64,
 }
 
 #[derive(Debug, Clone)]
@@ -359,6 +360,7 @@ impl GameDraft {
             args_rows: Vec::new(),
             created_at: now_unix(),
             last_played_at: None,
+            playtime_seconds: 0,
         }
     }
 
@@ -407,6 +409,7 @@ impl GameDraft {
             args_rows: game.args.clone(),
             created_at: game.created_at,
             last_played_at: game.last_played_at,
+            playtime_seconds: game.playtime_seconds,
         }
     }
 
@@ -498,6 +501,7 @@ impl GameDraft {
             args,
             created_at: self.created_at,
             last_played_at: self.last_played_at,
+            playtime_seconds: self.playtime_seconds,
         })
     }
 }
@@ -531,6 +535,7 @@ mod tests {
             args_rows: Vec::new(),
             created_at: 1_700_000_000,
             last_played_at: None,
+            playtime_seconds: 0,
         }
     }
 

@@ -28,10 +28,7 @@ impl App {
                 self.selected_game = None;
                 crate::dialogs::pick(crate::dialogs::DialogIntent::PickExe, self.lang)
             }
-            Message::Loaded(data) => {
-                self.apply_loaded(data);
-                Task::none()
-            }
+            Message::Loaded(data) => self.apply_loaded(data),
             Message::LoadFailed(error) => {
                 self.pending.loading = false;
                 self.error = Some(ErrorNotice::new(self.tr("app.error.load")).with_detail(error));
@@ -65,6 +62,29 @@ impl App {
                 cover_changed,
                 result,
             } => self.apply_draft_saved(game_id, revision, cover_changed, result),
+            Message::CoverLoaded {
+                game_id,
+                path,
+                bytes,
+            } => {
+                let current = self
+                    .games
+                    .iter()
+                    .find(|game| game.id == game_id)
+                    .and_then(|game| game.cover_path.as_deref());
+                if current == Some(path.as_path()) {
+                    match bytes {
+                        Some(bytes) => {
+                            self.cover_handles
+                                .insert(game_id, iced::widget::image::Handle::from_bytes(bytes));
+                        }
+                        None => {
+                            self.cover_handles.remove(&game_id);
+                        }
+                    }
+                }
+                Task::none()
+            }
             Message::Pick(intent) => crate::dialogs::pick(intent, self.lang),
             Message::DialogResult { intent, path } => self.apply_dialog_result(intent, path),
             Message::DismissError => {
@@ -680,20 +700,33 @@ impl App {
             }
             Message::LaunchEvent(event) => {
                 match event {
-                    LaunchEvent::Started { game_id } => {
+                    LaunchEvent::Started {
+                        game_id,
+                        started_at,
+                    } => {
                         self.starting.remove(&game_id);
+                        if let Some(game) = self.games.iter_mut().find(|game| game.id == game_id) {
+                            game.last_played_at = Some(started_at);
+                        }
+                        if let Some(draft) = &mut self.draft {
+                            if draft.id == game_id {
+                                draft.last_played_at = Some(started_at);
+                            }
+                        }
                     }
                     LaunchEvent::Finished { game_id, outcome } => {
                         self.starting.remove(&game_id);
                         self.running.remove(&game_id);
                         self.stopping.remove(&game_id);
-                        let timestamp = chrono::Utc::now().timestamp();
+                        let session_seconds = outcome.session_seconds.max(0);
                         if let Some(game) = self.games.iter_mut().find(|game| game.id == game_id) {
-                            game.last_played_at = Some(timestamp);
+                            game.playtime_seconds =
+                                game.playtime_seconds.saturating_add(session_seconds);
                         }
                         if let Some(draft) = &mut self.draft {
                             if draft.id == game_id {
-                                draft.last_played_at = Some(timestamp);
+                                draft.playtime_seconds =
+                                    draft.playtime_seconds.saturating_add(session_seconds);
                             }
                         }
                         if !outcome.success && !outcome.stopped {

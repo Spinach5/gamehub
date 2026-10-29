@@ -8,4 +8,4 @@ pub use env::{build_dll_overrides, build_env, validate_dll_name, validate_env_ke
 pub use error::LaunchError;
 pub use plan::{LaunchPlan, LaunchRequest, LaunchTuning, build_plan, validate};
 pub use resolve::resolve_runner;
-pub use spawn::{spawn_plan, spawn_plan_with_log, terminate_process_group};
+pub use spawn::{process_group_alive, spawn_plan, spawn_plan_with_log, terminate_process_group};

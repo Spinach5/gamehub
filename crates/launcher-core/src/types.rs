@@ -141,6 +141,7 @@ pub struct Game {
     pub args: Vec<String>,
     pub created_at: i64,
     pub last_played_at: Option<i64>,
+    pub playtime_seconds: i64,
 }
 
 #[cfg(test)]
@@ -301,6 +302,7 @@ mod tests {
             args: vec!["-skipStartScreen".into(), "--windowed".into()],
             created_at: 1_700_000_000,
             last_played_at: Some(1_700_000_100),
+            playtime_seconds: 7_200,
         }
     }
 
@@ -344,6 +346,7 @@ mod tests {
             "args",
             "created_at",
             "last_played_at",
+            "playtime_seconds",
         ] {
             assert!(value.get(key).is_some(), "missing field {key}");
         }

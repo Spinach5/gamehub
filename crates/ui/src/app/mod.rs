@@ -9,7 +9,6 @@ use application::{
     AppPaths, AppService, Game, MonitorOutput, PrefixPlan, PrefixStatus, Runner, SessionType,
     validate_env_key,
 };
-use std::collections::hash_map::Entry;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
@@ -377,7 +376,7 @@ impl App {
         }
     }
 
-    fn apply_loaded(&mut self, data: application::LoadedData) {
+    fn apply_loaded(&mut self, data: application::LoadedData) -> iced::Task<Message> {
         self.pending.loading = false;
         self.games = data.games;
         self.runners = data.runners;
@@ -419,22 +418,31 @@ impl App {
 
         self.sort_games();
 
-        self.cover_handles = self
+        let tasks: Vec<_> = self
             .games
             .iter()
-            .filter_map(|game| Some((game.id, Self::cover_handle(game.cover_path.as_deref())?)))
+            .map(|game| Self::cover_task(game.id, game.cover_path.clone()))
             .collect();
+        iced::Task::batch(tasks)
     }
 
-    fn cover_handle(path: Option<&Path>) -> Option<iced::widget::image::Handle> {
-        path.filter(|path| path.is_file())
-            .map(|path| iced::widget::image::Handle::from_path(path.to_path_buf()))
+    /// Reads a cover off the UI thread and reports back through `CoverLoaded`.
+    fn cover_task(game_id: Uuid, path: Option<PathBuf>) -> iced::Task<Message> {
+        let Some(path) = path else {
+            return iced::Task::none();
+        };
+        let loaded_path = path.clone();
+        iced::Task::perform(Self::read_cover_bytes(path), move |bytes| {
+            Message::CoverLoaded {
+                game_id,
+                path: loaded_path.clone(),
+                bytes,
+            }
+        })
     }
 
-    fn cover_handle_bytes(path: Option<&Path>) -> Option<iced::widget::image::Handle> {
-        let path = path.filter(|path| path.is_file())?;
-        let bytes = std::fs::read(path).ok()?;
-        Some(iced::widget::image::Handle::from_bytes(bytes))
+    async fn read_cover_bytes(path: PathBuf) -> Option<Vec<u8>> {
+        tokio::fs::read(path).await.ok()
     }
 
     fn touch_draft(&mut self) {
@@ -498,32 +506,31 @@ impl App {
         self.pending.saving = false;
         match result {
             Ok(game) => {
-                let merged_last_played = if let Some(existing) = self
+                // A save can race a running session: keep the session-accounted
+                // fields monotonic instead of taking the draft's older values.
+                let (merged_last_played, merged_playtime) = if let Some(existing) = self
                     .games
                     .iter_mut()
                     .find(|existing| existing.id == game.id)
                 {
                     let latest_played = existing.last_played_at.max(game.last_played_at);
+                    let latest_playtime = existing.playtime_seconds.max(game.playtime_seconds);
                     *existing = game.clone();
                     existing.last_played_at = latest_played;
-                    latest_played
+                    existing.playtime_seconds = latest_playtime;
+                    (latest_played, latest_playtime)
                 } else {
                     self.games.push(game.clone());
-                    game.last_played_at
+                    (game.last_played_at, game.playtime_seconds)
                 };
+                let mut cover_load = iced::Task::none();
                 if cover_changed {
-                    match Self::cover_handle_bytes(game.cover_path.as_deref()) {
-                        Some(handle) => {
-                            self.cover_handles.insert(game.id, handle);
-                        }
-                        None => {
-                            self.cover_handles.remove(&game.id);
-                        }
+                    if game.cover_path.is_none() {
+                        self.cover_handles.remove(&game.id);
                     }
-                } else if let Entry::Vacant(entry) = self.cover_handles.entry(game.id) {
-                    if let Some(handle) = Self::cover_handle(game.cover_path.as_deref()) {
-                        entry.insert(handle);
-                    }
+                    cover_load = Self::cover_task(game.id, game.cover_path.clone());
+                } else if !self.cover_handles.contains_key(&game.id) {
+                    cover_load = Self::cover_task(game.id, game.cover_path.clone());
                 }
                 self.sort_games();
                 let current = self.draft.as_ref().is_some_and(|draft| draft.id == game_id)
@@ -532,14 +539,16 @@ impl App {
                     self.selected_game = Some(game.id);
                     let mut draft = GameDraft::from_game(&game);
                     draft.last_played_at = merged_last_played;
+                    draft.playtime_seconds = merged_playtime;
                     self.draft = Some(draft);
                     self.touch_draft();
                     self.error = None;
-                    return self.refresh_prefix_status(game.id);
+                    return iced::Task::batch([cover_load, self.refresh_prefix_status(game.id)]);
                 }
                 if self.selected_game == Some(game.id) {
-                    return self.refresh_prefix_status(game.id);
+                    return iced::Task::batch([cover_load, self.refresh_prefix_status(game.id)]);
                 }
+                cover_load
             }
             Err(error) => {
                 let current = self.draft.as_ref().is_some_and(|draft| draft.id == game_id)
@@ -548,9 +557,9 @@ impl App {
                     self.error =
                         Some(ErrorNotice::new(self.tr("app.error.save")).with_detail(error));
                 }
+                iced::Task::none()
             }
         }
-        iced::Task::none()
     }
 
     fn apply_dialog_result(
@@ -881,7 +890,7 @@ mod tests {
             mangohud_path: None,
         };
 
-        app.apply_loaded(data);
+        let _ = app.apply_loaded(data);
 
         assert_eq!(app.lang, &crate::i18n::EN_US);
         assert_eq!(
@@ -961,13 +970,21 @@ mod tests {
     #[test]
     fn launch_state_moves_from_starting_to_playing() {
         let mut app = app();
-        let id = Uuid::new_v4();
+        let game = GameDraft::new(PathBuf::from("/tmp/gamehub-ui-test/game.exe"))
+            .to_game()
+            .unwrap();
+        let id = game.id;
+        app.games.push(game);
         app.running.insert(id, PathBuf::from("/tmp/prefix"));
         app.starting.insert(id);
         assert_eq!(app.launch_state_label(id), Some("启动中"));
 
-        let _ = app.update(Message::LaunchEvent(LaunchEvent::Started { game_id: id }));
+        let _ = app.update(Message::LaunchEvent(LaunchEvent::Started {
+            game_id: id,
+            started_at: 1_700_000_000,
+        }));
         assert_eq!(app.launch_state_label(id), Some("游玩"));
+        assert_eq!(app.games[0].last_played_at, Some(1_700_000_000));
 
         let _ = app.update(Message::LaunchEvent(LaunchEvent::Finished {
             game_id: id,
@@ -975,12 +992,33 @@ mod tests {
                 exit_code: Some(0),
                 success: true,
                 stopped: false,
+                session_seconds: 90,
             },
         }));
         assert_eq!(app.launch_state_label(id), None);
         assert!(!app.running.contains_key(&id));
         assert!(!app.starting.contains(&id));
         assert!(!app.stopping.contains(&id));
+        assert_eq!(app.games[0].playtime_seconds, 90);
+    }
+
+    #[test]
+    fn saved_draft_does_not_lower_session_totals() {
+        let mut app = app();
+        let mut game = GameDraft::new(PathBuf::from("/tmp/gamehub-ui-test/game.exe"))
+            .to_game()
+            .unwrap();
+        game.playtime_seconds = 600;
+        game.last_played_at = Some(1_700_000_600);
+        app.games.push(game.clone());
+
+        let mut stale = game.clone();
+        stale.playtime_seconds = 120;
+        stale.last_played_at = Some(1_700_000_120);
+        let _ = app.apply_draft_saved(game.id, 0, false, Ok(stale));
+
+        assert_eq!(app.games[0].playtime_seconds, 600);
+        assert_eq!(app.games[0].last_played_at, Some(1_700_000_600));
     }
 
     #[test]
@@ -998,6 +1036,7 @@ mod tests {
                 exit_code: None,
                 success: false,
                 stopped: true,
+                session_seconds: 0,
             },
         }));
         assert_eq!(app.launch_state_label(id), None);
@@ -1131,5 +1170,179 @@ mod tests {
         );
         assert_eq!(app.selected_game, Some(id));
         assert!(!app.cover_handles.contains_key(&id));
+    }
+
+    #[test]
+    fn cover_loaded_ignores_stale_paths_and_installs_fresh_bytes() {
+        let mut app = app();
+        let id = Uuid::new_v4();
+        let mut game = GameDraft::new(PathBuf::from("/tmp/gamehub-ui-test/game.exe"))
+            .to_game()
+            .unwrap();
+        game.id = id;
+        game.cover_path = Some(PathBuf::from("/tmp/gamehub-ui-test/cover.png"));
+        app.games.push(game);
+
+        let _ = app.update(Message::CoverLoaded {
+            game_id: id,
+            path: PathBuf::from("/tmp/gamehub-ui-test/replaced.png"),
+            bytes: Some(vec![1, 2, 3]),
+        });
+        assert!(!app.cover_handles.contains_key(&id));
+
+        let _ = app.update(Message::CoverLoaded {
+            game_id: id,
+            path: PathBuf::from("/tmp/gamehub-ui-test/cover.png"),
+            bytes: Some(vec![1, 2, 3]),
+        });
+        assert!(app.cover_handles.contains_key(&id));
+    }
+
+    /// A 3x4 RGB PNG; `save_game` validates the format before importing it.
+    const COVER_PNG: &[u8] = &[
+        137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 3, 0, 0, 0, 4, 8, 2,
+        0, 0, 0, 196, 79, 18, 80, 0, 0, 0, 42, 73, 68, 65, 84, 120, 218, 13, 198, 49, 1, 0, 48, 12,
+        195, 48, 195, 9, 136, 130, 8, 156, 158, 6, 85, 128, 155, 46, 1, 6, 139, 48, 102, 236, 252,
+        173, 89, 187, 127, 103, 206, 158, 15, 199, 0, 12, 25, 54, 222, 103, 1, 0, 0, 0, 0, 73, 69,
+        78, 68, 174, 66, 96, 130,
+    ];
+
+    /// Drives a task to completion the way the iced runtime would, without a
+    /// window: every action it emits must be a plain message output.
+    async fn run_task(task: iced::Task<Message>) -> Vec<Message> {
+        use iced_runtime::futures::futures::StreamExt;
+
+        let mut messages = Vec::new();
+        if let Some(stream) = iced_runtime::task::into_stream(task) {
+            let mut stream = std::pin::pin!(stream);
+            while let Some(action) = stream.next().await {
+                match action {
+                    iced_runtime::Action::Output(message) => messages.push(message),
+                    _ => panic!("task emitted a runtime action that needs a live iced runtime"),
+                }
+            }
+        }
+        messages
+    }
+
+    #[tokio::test]
+    async fn saved_cover_bytes_travel_through_the_task_stream() {
+        let root = std::env::temp_dir().join(format!("gamehub-cover-{}", Uuid::new_v4()));
+        let paths = AppPaths::for_root(root.clone());
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(paths.covers_dir.as_path()).unwrap();
+        let exe = root.join("game.exe");
+        std::fs::write(&exe, b"stub").unwrap();
+        let source = root.join("night.png");
+        std::fs::write(&source, COVER_PNG).unwrap();
+
+        let service = AppService::open_in_memory().unwrap();
+        let (mut app, _) = App::new(paths.clone(), Ok(service));
+        app.settings.language = LanguagePref::Fixed(&crate::i18n::ZH_CN);
+        app.lang = &crate::i18n::ZH_CN;
+
+        let mut draft = GameDraft::new(exe);
+        draft.name = "Cover Test".into();
+        draft.cover_source = Some(source);
+        app.draft = Some(draft);
+
+        let saved = run_task(app.save_draft()).await;
+        let [saved] = saved.as_slice() else {
+            panic!(
+                "expected exactly one DraftSaved message, got {}",
+                saved.len()
+            );
+        };
+        let Message::DraftSaved {
+            game_id,
+            revision,
+            cover_changed,
+            result,
+        } = saved.clone()
+        else {
+            panic!("expected DraftSaved, got {saved:?}");
+        };
+        assert!(cover_changed);
+        let game = result.expect("save succeeds");
+        let stored = paths.covers_dir.join(format!("{game_id}.png"));
+        assert_eq!(game.cover_path.as_deref(), Some(stored.as_path()));
+
+        let messages =
+            run_task(app.apply_draft_saved(game_id, revision, cover_changed, Ok(game))).await;
+        let loaded = messages
+            .into_iter()
+            .find_map(|message| match message {
+                Message::CoverLoaded {
+                    game_id,
+                    path,
+                    bytes,
+                } => Some((game_id, path, bytes)),
+                _ => None,
+            })
+            .expect("a cover-loaded message follows the save");
+        assert_eq!(loaded.0, game_id);
+        assert_eq!(loaded.1, stored);
+        assert_eq!(loaded.2.as_deref(), Some(COVER_PNG));
+        assert!(!app.cover_handles.contains_key(&game_id));
+
+        let _ = app.update(Message::CoverLoaded {
+            game_id: loaded.0,
+            path: loaded.1,
+            bytes: loaded.2,
+        });
+        assert!(app.cover_handles.contains_key(&game_id));
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[tokio::test]
+    async fn initial_load_streams_cover_bytes_for_stored_games() {
+        let root = std::env::temp_dir().join(format!("gamehub-cover-load-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let cover = root.join("stored.png");
+        std::fs::write(&cover, COVER_PNG).unwrap();
+
+        let mut app = app();
+        let mut game = GameDraft::new(PathBuf::from("/tmp/gamehub-ui-test/game.exe"))
+            .to_game()
+            .unwrap();
+        game.cover_path = Some(cover.clone());
+        let id = game.id;
+
+        let messages = run_task(app.apply_loaded(application::LoadedData {
+            games: vec![game],
+            runners: Vec::new(),
+            settings_map: BTreeMap::new(),
+            session: application::SessionType::Unknown,
+            monitors: Vec::new(),
+            gamescope_path: None,
+            mangohud_path: None,
+        }))
+        .await;
+
+        let loaded = messages
+            .into_iter()
+            .find_map(|message| match message {
+                Message::CoverLoaded {
+                    game_id,
+                    path,
+                    bytes,
+                } => Some((game_id, path, bytes)),
+                _ => None,
+            })
+            .expect("startup loading reads stored covers through the task stream");
+        assert_eq!(loaded.0, id);
+        assert_eq!(loaded.1, cover);
+        assert_eq!(loaded.2.as_deref(), Some(COVER_PNG));
+        assert!(app.cover_handles.is_empty());
+
+        let _ = app.update(Message::CoverLoaded {
+            game_id: loaded.0,
+            path: loaded.1,
+            bytes: loaded.2,
+        });
+        assert!(app.cover_handles.contains_key(&id));
+
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

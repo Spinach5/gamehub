@@ -214,6 +214,7 @@ mod tests {
                 args: vec!["-skip".into()],
                 created_at: 0,
                 last_played_at: None,
+                playtime_seconds: 0,
             },
             runner: Runner {
                 id: uuid::Uuid::new_v4(),

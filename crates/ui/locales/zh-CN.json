@@ -85,6 +85,7 @@
   "detail.env.override_hint": "WINEDLLOVERRIDES 请使用下方的结构化 DLL Override，不要手填",
   "detail.executable": "可执行文件",
   "detail.fact.dxvk_source": "DXVK 源",
+  "detail.fact.playtime": "总时长",
   "detail.fact.recently_played": "最近游玩",
   "detail.fullscreen": "全屏",
   "detail.fullscreen.hint": "以全屏模式启动游戏",
@@ -197,6 +198,7 @@
   "library.empty.body": "点击下方按钮选择一个 .exe 开始",
   "library.empty.title": "还没有游戏",
   "library.new_game": "＋ 新建游戏",
+  "library.playtime": "总时长 {time}",
   "library.subtitle.one": "{games} 个游戏 · {running} 个正在运行",
   "library.subtitle.other": "{games} 个游戏 · {running} 个正在运行",
   "library.title": "游戏库",
@@ -269,5 +271,9 @@
   "settings.theme.light": "浅色",
   "settings.title": "设置",
   "time.never": "从未",
+  "time.playtime.hours": "{hours} 小时",
+  "time.playtime.hours_minutes": "{hours} 小时 {minutes} 分钟",
+  "time.playtime.minutes": "{minutes} 分钟",
+  "time.playtime.zero": "0 分钟",
   "widgets.error": "错误"
 }

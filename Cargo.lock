@@ -3852,6 +3852,7 @@ dependencies = [
  "application",
  "chrono",
  "iced",
+ "iced_runtime",
  "rfd",
  "serde_json",
  "tokio",

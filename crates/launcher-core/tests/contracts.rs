@@ -19,6 +19,7 @@ fn default_game_config_is_usable_without_database() {
         args: Vec::new(),
         created_at: 0,
         last_played_at: None,
+        playtime_seconds: 0,
     };
 
     let encoded = serde_json::to_value(&game).unwrap();

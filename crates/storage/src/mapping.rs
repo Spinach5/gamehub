@@ -82,6 +82,7 @@ pub(crate) fn row_to_game(row: &Row<'_>) -> Result<launcher_core::Game, StorageE
     let created_at: i64 = row.get(11)?;
     let last_played_at: Option<i64> = row.get(12)?;
     let cover_path: Option<String> = row.get(13)?;
+    let playtime_seconds: i64 = row.get(14)?;
 
     Ok(launcher_core::Game {
         id: parse_uuid("games.id", &id)?,
@@ -98,6 +99,7 @@ pub(crate) fn row_to_game(row: &Row<'_>) -> Result<launcher_core::Game, StorageE
         args: serde_json::from_str(&args_json)?,
         created_at,
         last_played_at,
+        playtime_seconds,
     })
 }
 

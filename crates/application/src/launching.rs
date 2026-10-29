@@ -1,5 +1,6 @@
 use crate::{AppError, AppService};
 use launcher_core::RunnerKind;
+use std::path::Path;
 use tokio::sync::mpsc::UnboundedSender;
 use uuid::Uuid;
 
@@ -10,12 +11,14 @@ pub struct LaunchOutcome {
     pub exit_code: Option<i32>,
     pub success: bool,
     pub stopped: bool,
+    pub session_seconds: i64,
 }
 
 #[derive(Debug, Clone)]
 pub enum LaunchEvent {
     Started {
         game_id: Uuid,
+        started_at: i64,
     },
     Finished {
         game_id: Uuid,
@@ -82,7 +85,6 @@ impl AppService {
         }
 
         let wine_prefix = ::prefix::windows_root(&prefix_plan.path, request.runner.kind);
-        let runner = request.runner.clone();
 
         let plan_request = request.clone();
         let plan =
@@ -135,14 +137,33 @@ impl AppService {
                     return Err(error.into());
                 }
             };
-        if let Some(process_group) = child.id() {
-            if !self.register_process(game_id, process_group, runner, wine_prefix) {
+        let process_group = child.id();
+        if let Some(process_group) = process_group {
+            if !self.register_process(
+                game_id,
+                process_group,
+                request.runner.clone(),
+                wine_prefix.clone(),
+            ) {
                 let _ = child.kill().await;
                 restore_primary(primary_to_restore, request.session).await;
                 return Err(AppError::GameAlreadyRunning);
             }
         }
-        let _ = events.send(LaunchEvent::Started { game_id });
+        // Record the start before the game can report back, so a launcher
+        // crash mid-session still leaves an accurate "last played" stamp.
+        let started_at = unix_now();
+        let db = self.db_handle();
+        let _ = tokio::task::spawn_blocking(move || {
+            if let Ok(db) = db.lock() {
+                let _ = db.touch_last_played(game_id, started_at);
+            }
+        })
+        .await;
+        let _ = events.send(LaunchEvent::Started {
+            game_id,
+            started_at,
+        });
 
         // Wine reads the XRandR primary while starting up and keeps using it
         // for the game window, so the original primary can be restored early.
@@ -153,14 +174,17 @@ impl AppService {
 
         let wait_result = child.wait().await;
         restore_primary(primary_to_restore, request.session).await;
+        if let Some(process_group) = process_group {
+            wait_for_session_end(process_group, &wine_prefix).await;
+        }
         self.unregister_process(game_id);
         let stopped = self.take_stop_requested(game_id);
-        let timestamp = unix_now();
+        let session_seconds = unix_now().saturating_sub(started_at);
 
         let db = self.db_handle();
         let _ = tokio::task::spawn_blocking(move || {
             if let Ok(db) = db.lock() {
-                let _ = db.touch_last_played(game_id, timestamp);
+                let _ = db.add_playtime(game_id, session_seconds);
             }
         })
         .await;
@@ -170,6 +194,7 @@ impl AppService {
             exit_code: status.code(),
             success: status.success(),
             stopped,
+            session_seconds,
         };
         let _ = events.send(LaunchEvent::Finished { game_id, outcome });
         Ok(outcome)
@@ -215,6 +240,38 @@ fn unix_now() -> i64 {
         .unwrap_or(0)
 }
 
+/// The wrapper we spawned can exit while the game keeps running: Wine starts
+/// game processes from wineserver, and launchers such as `proton run` may
+/// return before the game does. Keep the session open until both our process
+/// group and the prefix are empty, so the UI does not report a live game as
+/// idle and the stop button keeps working.
+async fn wait_for_session_end(process_group: u32, wine_prefix: &Path) {
+    let mut announced = false;
+
+    loop {
+        let prefix = wine_prefix.to_path_buf();
+        let alive = tokio::task::spawn_blocking(move || {
+            ::launch::process_group_alive(process_group)
+                || runner_wine::prefix_has_processes(&prefix)
+        })
+        .await
+        .unwrap_or(false);
+
+        if !alive {
+            return;
+        }
+        if !announced {
+            announced = true;
+            tracing::debug!(
+                process_group,
+                prefix = %wine_prefix.display(),
+                "launcher wrapper exited while the game is still running"
+            );
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+    }
+}
+
 async fn restore_primary(previous: Option<String>, session: display::SessionType) {
     let Some(previous) = previous else {
         return;
@@ -224,5 +281,63 @@ async fn restore_primary(previous: Option<String>, session: display::SessionType
         Ok(Ok(_)) => {}
         Ok(Err(error)) => tracing::warn!(%error, "failed to restore primary monitor"),
         Err(error) => tracing::warn!(%error, "primary monitor restore task failed"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    /// A group id that no live process can have.
+    const DEAD_GROUP: u32 = 2_000_000_000;
+
+    #[tokio::test]
+    async fn session_ends_immediately_when_nothing_is_left() {
+        let dir = tempfile::tempdir().unwrap();
+        tokio::time::timeout(
+            Duration::from_secs(2),
+            wait_for_session_end(DEAD_GROUP, &dir.path().join("pfx")),
+        )
+        .await
+        .expect("an idle prefix ends the session right away");
+    }
+
+    #[tokio::test]
+    async fn session_stays_open_while_the_prefix_has_processes() {
+        let dir = tempfile::tempdir().unwrap();
+        let wine_prefix = dir.path().join("pfx");
+        let mut child = tokio::process::Command::new("sleep")
+            .arg("30")
+            .env("WINEPREFIX", &wine_prefix)
+            .spawn()
+            .unwrap();
+
+        for _ in 0..100 {
+            if runner_wine::prefix_has_processes(&wine_prefix) {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        assert!(runner_wine::prefix_has_processes(&wine_prefix));
+
+        let mut waiter = tokio::spawn({
+            let wine_prefix = wine_prefix.clone();
+            async move { wait_for_session_end(DEAD_GROUP, &wine_prefix).await }
+        });
+        assert!(
+            tokio::time::timeout(Duration::from_millis(700), &mut waiter)
+                .await
+                .is_err(),
+            "the session must stay open while a detached game process lives"
+        );
+
+        let _ = child.kill().await;
+        let _ = child.wait().await;
+
+        tokio::time::timeout(Duration::from_secs(3), waiter)
+            .await
+            .expect("the session ends once the prefix is empty")
+            .expect("session waiter task finishes");
     }
 }

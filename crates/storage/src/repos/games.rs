@@ -7,7 +7,7 @@ use uuid::Uuid;
 
 const GAME_COLUMNS: &str = "id, name, executable_path, working_dir, runner_id, prefix_path, \
                             arch, display_json, env_overrides_json, dll_overrides_json, \
-                            args_json, created_at, last_played_at, cover_path";
+                            args_json, created_at, last_played_at, cover_path, playtime_seconds";
 
 impl Db {
     pub fn insert_game(&self, game: &Game) -> Result<(), StorageError> {
@@ -28,8 +28,9 @@ impl Db {
             .execute(
                 "INSERT INTO games (id, name, executable_path, working_dir, runner_id, prefix_path,
                                     arch, display_json, env_overrides_json, dll_overrides_json,
-                                    args_json, created_at, last_played_at, cover_path)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+                                    args_json, created_at, last_played_at, cover_path,
+                                    playtime_seconds)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
                 params![
                     id,
                     game.name,
@@ -45,12 +46,16 @@ impl Db {
                     game.created_at,
                     game.last_played_at,
                     cover_path,
+                    game.playtime_seconds,
                 ],
             )
             .map_err(|error| map_game_insert_error(error, game.id))?;
         Ok(())
     }
 
+    /// Writes the editable fields of `game`. `playtime_seconds` is deliberately
+    /// left alone: it is accumulated by launch sessions, and a draft saved
+    /// while a game runs would otherwise overwrite it with a stale value.
     pub fn update_game(&self, game: &Game) -> Result<(), StorageError> {
         let executable_path = path_to_string(&game.executable_path, "games.executable_path")?;
         let working_dir =
@@ -129,6 +134,17 @@ impl Db {
         let changed = self.conn.execute(
             "UPDATE games SET last_played_at = ?2 WHERE id = ?1",
             params![id.to_string(), timestamp],
+        )?;
+        if changed == 0 {
+            return Err(StorageError::GameNotFound(id));
+        }
+        Ok(())
+    }
+
+    pub fn add_playtime(&self, id: Uuid, seconds: i64) -> Result<(), StorageError> {
+        let changed = self.conn.execute(
+            "UPDATE games SET playtime_seconds = MAX(playtime_seconds + ?2, 0) WHERE id = ?1",
+            params![id.to_string(), seconds],
         )?;
         if changed == 0 {
             return Err(StorageError::GameNotFound(id));

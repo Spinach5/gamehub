@@ -20,6 +20,11 @@ pub enum Message {
         cover_changed: bool,
         result: Result<Game, String>,
     },
+    CoverLoaded {
+        game_id: Uuid,
+        path: PathBuf,
+        bytes: Option<Vec<u8>>,
+    },
     Pick(crate::dialogs::DialogIntent),
     DialogResult {
         intent: crate::dialogs::DialogIntent,

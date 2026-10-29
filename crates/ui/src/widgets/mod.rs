@@ -108,9 +108,34 @@ pub fn format_timestamp(lang: crate::i18n::Lang, timestamp: Option<i64>) -> Stri
         .unwrap_or_else(|| crate::i18n::tr(lang, "time.never").into())
 }
 
+pub fn format_playtime(lang: crate::i18n::Lang, seconds: i64) -> String {
+    let seconds = seconds.max(0);
+    if seconds == 0 {
+        return crate::i18n::tr(lang, "time.playtime.zero").into();
+    }
+    let hours = seconds / 3600;
+    let minutes = (seconds % 3600) / 60;
+    if hours == 0 {
+        // Round a short session up so a played game never reads "0 min".
+        let minutes = minutes.max(1).to_string();
+        return crate::i18n::tr_args(lang, "time.playtime.minutes", &[("minutes", &minutes)]);
+    }
+    let hours = hours.to_string();
+    if minutes == 0 {
+        return crate::i18n::tr_args(lang, "time.playtime.hours", &[("hours", &hours)]);
+    }
+    let minutes = minutes.to_string();
+    crate::i18n::tr_args(
+        lang,
+        "time.playtime.hours_minutes",
+        &[("hours", &hours), ("minutes", &minutes)],
+    )
+}
+
 #[cfg(test)]
 mod tests {
-    use super::middle_truncate;
+    use super::{format_playtime, middle_truncate};
+    use crate::i18n::{EN_US, ZH_CN};
 
     #[test]
     fn middle_truncate_keeps_both_ends() {
@@ -119,5 +144,26 @@ mod tests {
             middle_truncate("/very/long/path/to/proton", 10),
             "/ver…roton"
         );
+    }
+
+    #[test]
+    fn format_playtime_rounds_short_sessions_up() {
+        let zh = &ZH_CN;
+        let en = &EN_US;
+        assert_eq!(format_playtime(zh, 0), "0 分钟");
+        assert_eq!(format_playtime(en, 0), "0 min");
+        assert_eq!(format_playtime(zh, 25), "1 分钟");
+        assert_eq!(format_playtime(en, 90), "1 min");
+    }
+
+    #[test]
+    fn format_playtime_splits_hours_and_minutes() {
+        let zh = &ZH_CN;
+        let en = &EN_US;
+        assert_eq!(format_playtime(zh, 3600), "1 小时");
+        assert_eq!(format_playtime(en, 3600), "1 h");
+        assert_eq!(format_playtime(zh, 3 * 3600 + 12 * 60), "3 小时 12 分钟");
+        assert_eq!(format_playtime(en, 3 * 3600 + 12 * 60), "3 h 12 min");
+        assert_eq!(format_playtime(en, -30), "0 min");
     }
 }

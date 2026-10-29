@@ -94,6 +94,16 @@ pub async fn terminate_process_group(process_group: u32) -> Result<(), LaunchErr
     }
 }
 
+/// Reports whether any process still belongs to the given process group.
+pub fn process_group_alive(process_group: u32) -> bool {
+    match killpg(Pid::from_raw(process_group as i32), None::<Signal>) {
+        Ok(()) => true,
+        Err(Errno::ESRCH) => false,
+        // Anything else means the group exists but is not ours to signal.
+        Err(_) => true,
+    }
+}
+
 async fn open_log(path: &Path, plan: &LaunchPlan) -> std::io::Result<File> {
     if let Some(parent) = path
         .parent()
@@ -159,6 +169,29 @@ mod tests {
     use std::collections::BTreeMap;
     use std::fs;
     use tempfile::tempdir;
+
+    #[tokio::test]
+    async fn process_group_alive_follows_the_spawned_group() {
+        let plan = LaunchPlan {
+            program: PathBuf::from("/bin/sh"),
+            args: vec!["-c".into(), "exec sleep 30".into()],
+            env: BTreeMap::new(),
+            cwd: None,
+        };
+
+        let mut child = spawn_plan(&plan).await.unwrap();
+        let process_group = child.id().expect("spawned child has a pid");
+        assert!(process_group_alive(process_group));
+
+        // A zombie still counts as a group member, so reap before checking.
+        let _ = child.kill().await;
+        assert!(!process_group_alive(process_group));
+    }
+
+    #[test]
+    fn missing_process_group_is_not_alive() {
+        assert!(!process_group_alive(2_000_000_000));
+    }
 
     #[tokio::test]
     async fn clears_environment_and_returns_child_status() {
