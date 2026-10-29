@@ -2,6 +2,55 @@
 
 本文件记录每个实施阶段完成的内容、与规格的偏差以及验证结果。
 
+## v0.6.0 — 游玩时长统计与启动会话保活（2026-10-29）
+
+### 完成内容
+
+- 数据库 schema 升到 v3：`games.playtime_seconds INTEGER NOT NULL DEFAULT 0`；
+  新增 v1→v3、v2→v3 迁移，已有库原地升级且游戏数据保留。`Game` 与
+  `GameDraft` 同步增加该字段，插入语句与行映射一并更新。
+- 启动会话在开始时就写入 `last_played_at`（`LaunchEvent::Started` 携带
+  `started_at`），即使启动器随后崩溃也能保住「最近游玩」；会话结束时按墙钟差
+  调用 `add_playtime` 累加总时长，`UPDATE` 用 `MAX(..., 0)` 保证不会出现负值。
+  `update_game` 刻意不写时长，UI 合并草稿时对 `last_played_at` 与
+  `playtime_seconds` 取 `max`，保存草稿不会把运行中的统计改小。
+- 时长展示：详情页摘要新增「总时长」，游戏库卡片在「最近游玩」下方新增
+  「总时长」行；两者都经 `widgets::format_playtime` 本地化，0 秒显示
+  「0 分钟」，不足 1 分钟显示「1 分钟」，超过 1 小时显示「x 小时 y 分钟」。
+- 会话保活：只有启动器进程组（`killpg(pgid, 0)`）与 Wine prefix 内的进程
+  （扫描 `/proc/*/environ` 的 `WINEPREFIX=`，按 `/proc/<pid>/comm` 排除
+  `wineserver` 自身）都为空时才结束会话，250 ms 轮询一次。修复 `proton run`
+  等 wrapper 先于游戏退出时，UI 把仍在运行的游戏误判为空闲、会话时长被截断、
+  停止按钮失效的问题。
+- 封面加载全部改走 iced `Task`：首次加载、保存后刷新都在主线程外读取文件字节，
+  只把 `image::Handle` 交给界面，启动时不再被磁盘 I/O 阻塞。
+- 架构调整：`GameDraft` 及其校验从 `ui::draft` 迁到 `application::editor`，
+  `ui` 只依赖 `application`（由后者重导出所需的 `launcher-core` 类型），
+  本地化错误渲染仍留在 `ui::i18n::errors`。
+
+### 与规格的偏差
+
+- 只持久化累计总时长，不保留逐次会话记录；精度为秒，展示按分钟取整，不显示秒。
+- 时长统计的是「启动到进程组与 prefix 都清空」的墙钟时间，包含 wineserver
+  与 prefix 退出清理的耗时。
+- `last_played_at` 的语义由「退出时间」改为「本次启动时间」；v0.5.0 之前写入的
+  历史值不追溯修正。
+- 封面仅把文件 I/O 移出主线程，图像解码仍由 iced 在渲染侧完成，超大封面首次
+  显示仍可能有一次卡顿。
+- `GameDraft` 不再位于 UI crate，界面代码必须通过 `application` 获取
+  `Game` 等类型。
+
+### 验证
+
+- `cargo fmt --all -- --check`：通过。
+- `cargo test --workspace`：285 passed，0 failed，2 ignored。
+- `cargo clippy --workspace --all-targets -- -D warnings`：通过。
+- 真实数据库迁移：复制现有 v2 数据目录后启动，schema 升级到 3，原有游戏与封面
+  保留，`playtime_seconds` 初始为 0；手工写入 11352 秒后再运行应用 8 秒，
+  日志无 panic / ERROR，数值未被改写。
+- 界面走查受限：本机为 GNOME Wayland，无法截取 iced 窗口，文案与布局只做了
+  静态检查，未做像素级人工走查。
+
 ## v0.5.0 — 界面多语言：简体中文与 English（2026-10-28）
 
 ### 完成内容
