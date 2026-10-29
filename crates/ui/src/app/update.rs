@@ -559,6 +559,7 @@ impl App {
                 };
                 values.remove(application::SETTING_UI_THEME);
                 values.remove(application::SETTING_UI_LANGUAGE);
+                values.remove(application::SETTING_UI_FONT);
                 let Some(service) = self.service.clone() else {
                     self.error = Some(ErrorNotice::new(self.tr("app.error.database_unavailable")));
                     return Task::none();
@@ -654,6 +655,105 @@ impl App {
                             if let Some(service) = self.service.clone() {
                                 self.language_saving = true;
                                 return save_language(service, self.settings.language, self.lang);
+                            }
+                        }
+                    }
+                }
+                Task::none()
+            }
+            Message::FontPanelToggled => {
+                self.font_panel_open = !self.font_panel_open;
+                Task::none()
+            }
+            Message::FontSearchChanged(query) => {
+                self.font_search = query;
+                Task::none()
+            }
+            Message::FontCjkOnlyToggled(value) => {
+                self.font_cjk_only = value;
+                Task::none()
+            }
+            Message::ScanFonts => {
+                if self.fonts_loading {
+                    return Task::none();
+                }
+                self.fonts_loading = true;
+                self.fonts_error = None;
+                Self::scan_fonts()
+            }
+            Message::FontsLoaded(result) => {
+                self.fonts_loading = false;
+                match result {
+                    Ok(fonts) => {
+                        self.fonts = fonts;
+                        self.fonts_error = None;
+                        self.apply_saved_font();
+                    }
+                    Err(error) => {
+                        self.fonts_error =
+                            Some(self.tr_args("errors.font_scan", &[("error", &error)]));
+                    }
+                }
+                Task::none()
+            }
+            Message::FontSelected(selected) => {
+                if self.pending.loading {
+                    return Task::none();
+                }
+                let name = selected.filter(|name| {
+                    name != crate::theme::FONT_FAMILY
+                        && self.fonts.iter().any(|font| font.name == name)
+                });
+                match name
+                    .as_deref()
+                    .and_then(|name| self.fonts.iter().find(|font| font.name == name).copied())
+                {
+                    Some(entry) => {
+                        crate::theme::set_active_font(Some((entry.name, entry.has_bold)))
+                    }
+                    None => crate::theme::set_active_font(None),
+                }
+                self.settings.font = name.clone();
+                self.font_panel_open = false;
+                self.font_missing_reported = false;
+                if self.font_saving {
+                    return Task::none();
+                }
+                let Some(service) = self.service.clone() else {
+                    self.error = Some(ErrorNotice::new(self.tr("app.error.database_unavailable")));
+                    return Task::none();
+                };
+                self.font_saving = true;
+                save_font(service, name, self.lang)
+            }
+            Message::FontSaved { name, result } => {
+                self.font_saving = false;
+                match result {
+                    Ok(()) => {
+                        if self
+                            .error
+                            .as_ref()
+                            .is_some_and(|notice| notice.kind == NoticeKind::FontSave)
+                        {
+                            self.error = None;
+                        }
+                        if self.settings.font != name {
+                            let Some(service) = self.service.clone() else {
+                                return Task::none();
+                            };
+                            self.font_saving = true;
+                            return save_font(service, self.settings.font.clone(), self.lang);
+                        }
+                    }
+                    Err(error) => {
+                        self.error = Some(
+                            ErrorNotice::font_save(self.tr("app.error.font_save"))
+                                .with_detail(error),
+                        );
+                        if self.settings.font != name {
+                            if let Some(service) = self.service.clone() {
+                                self.font_saving = true;
+                                return save_font(service, self.settings.font.clone(), self.lang);
                             }
                         }
                     }
@@ -1036,6 +1136,20 @@ fn save_language(
     })
 }
 
+fn save_font(
+    service: application::AppService,
+    name: Option<String>,
+    lang: crate::i18n::Lang,
+) -> Task<Message> {
+    let values = BTreeMap::from([(application::SETTING_UI_FONT.to_string(), name.clone())]);
+    Task::perform(service.save_settings(values), move |result| {
+        Message::FontSaved {
+            name: name.clone(),
+            result: result.map_err(|error| crate::i18n::errors::app_error(lang, &error)),
+        }
+    })
+}
+
 fn push_component_tail(tail: &mut Vec<String>, line: String) {
     tail.push(line);
     if tail.len() > COMPONENT_TAIL_LINES {
@@ -1302,7 +1416,88 @@ mod tests {
             ErrorNotice::language_save("x").kind,
             NoticeKind::LanguageSave
         );
+        assert_eq!(ErrorNotice::font_save("x").kind, NoticeKind::FontSave);
         assert_eq!(ErrorNotice::new("x").kind, NoticeKind::General);
+    }
+
+    fn font_entry(name: &'static str, cjk: bool, has_bold: bool) -> crate::fonts::FontEntry {
+        crate::fonts::FontEntry {
+            name,
+            cjk,
+            has_bold,
+        }
+    }
+
+    #[test]
+    fn font_selection_updates_settings_and_closes_the_panel() {
+        let mut app = app();
+        app.fonts = vec![font_entry("DejaVu Sans", false, true)];
+        app.font_panel_open = true;
+
+        let _ = app.update(Message::FontSelected(Some("DejaVu Sans".to_owned())));
+
+        assert_eq!(app.settings.font.as_deref(), Some("DejaVu Sans"));
+        assert!(!app.font_panel_open);
+    }
+
+    #[test]
+    fn selecting_the_default_font_clears_the_setting() {
+        let mut app = app();
+        app.settings.font = Some("DejaVu Sans".to_owned());
+        app.fonts = vec![font_entry("DejaVu Sans", false, true)];
+
+        let _ = app.update(Message::FontSelected(None));
+
+        assert_eq!(app.settings.font, None);
+    }
+
+    #[test]
+    fn unknown_selected_font_falls_back_to_the_default() {
+        let mut app = app();
+        app.fonts = vec![font_entry("DejaVu Sans", false, true)];
+
+        let _ = app.update(Message::FontSelected(Some("Missing Font".to_owned())));
+
+        assert_eq!(app.settings.font, None);
+    }
+
+    #[test]
+    fn stored_font_missing_from_the_scan_reports_once() {
+        let mut app = app();
+        app.settings.font = Some("Uninstalled Font".to_owned());
+
+        let _ = app.update(Message::FontsLoaded(Ok(vec![font_entry(
+            "DejaVu Sans",
+            false,
+            true,
+        )])));
+
+        let notice = app.error.as_ref().expect("missing font should warn");
+        assert_eq!(notice.title, app.tr("settings.font.missing"));
+        assert!(app.font_missing_reported);
+
+        app.error = None;
+        let _ = app.update(Message::FontsLoaded(Ok(vec![font_entry(
+            "DejaVu Sans",
+            false,
+            true,
+        )])));
+        assert!(app.error.is_none(), "the warning should not repeat");
+    }
+
+    #[test]
+    fn stale_font_save_resaves_the_latest_choice() {
+        let paths = AppPaths::for_root(PathBuf::from("/tmp/gamehub-font-test"));
+        let service = application::AppService::open_in_memory().expect("in-memory service");
+        let (mut app, _) = App::new(paths, Ok(service));
+        app.settings.font = Some("DejaVu Sans".to_owned());
+
+        let _ = app.update(Message::FontSaved {
+            name: Some("Noto Sans CJK SC".to_owned()),
+            result: Ok(()),
+        });
+
+        assert!(app.font_saving);
     }
 
     #[test]

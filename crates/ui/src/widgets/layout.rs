@@ -6,15 +6,19 @@ use iced::widget::{button, container, text};
 use iced::{Element, Length};
 
 pub fn muted<'a>(value: impl Into<String>) -> iced::widget::Text<'a> {
-    text(value.into()).style(|t| iced::widget::text::Style {
-        color: Some(theme::tokens(t).text_muted),
-    })
+    text(value.into())
+        .font(font(Weight::Normal))
+        .style(|t| iced::widget::text::Style {
+            color: Some(theme::tokens(t).text_muted),
+        })
 }
 
 pub fn faint<'a>(value: impl Into<String>) -> iced::widget::Text<'a> {
-    text(value.into()).style(|t| iced::widget::text::Style {
-        color: Some(theme::tokens(t).text_faint),
-    })
+    text(value.into())
+        .font(font(Weight::Normal))
+        .style(|t| iced::widget::text::Style {
+            color: Some(theme::tokens(t).text_faint),
+        })
 }
 
 pub fn page_header<'a>(

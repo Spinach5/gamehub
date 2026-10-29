@@ -17,12 +17,13 @@ pub use application::{
     AppError as ServiceError, DeleteTarget, LaunchOutcome, SETTING_AUTO_INSTALL_DXVK_NVAPI,
     SETTING_DEFAULT_RUNNER_ID, SETTING_DXVK_NVAPI_SOURCE, SETTING_ENABLE_ESYNC,
     SETTING_ENABLE_FSYNC, SETTING_ENABLE_MANGOHUD, SETTING_GLOBAL_ENV, SETTING_PREFIX_ROOT,
-    SETTING_UI_LANGUAGE, SETTING_UI_THEME,
+    SETTING_UI_FONT, SETTING_UI_LANGUAGE, SETTING_UI_THEME,
 };
 pub use message::{Message, SettingsAction};
 
 pub const LOG_TAIL_LINES: usize = 1000;
 pub const COMPONENT_TAIL_LINES: usize = 400;
+pub const FONT_LIST_LIMIT: usize = 80;
 
 /// An in-flight winetricks run. The plan is kept so the installed list can be
 /// refreshed against the same prefix even if the draft changes meanwhile.
@@ -51,6 +52,7 @@ pub enum NoticeKind {
     Form,
     ThemeSave,
     LanguageSave,
+    FontSave,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -75,6 +77,10 @@ impl ErrorNotice {
 
     pub fn language_save(title: impl Into<String>) -> Self {
         Self::with_kind(NoticeKind::LanguageSave, title)
+    }
+
+    pub fn font_save(title: impl Into<String>) -> Self {
+        Self::with_kind(NoticeKind::FontSave, title)
     }
 
     fn with_kind(kind: NoticeKind, title: impl Into<String>) -> Self {
@@ -103,6 +109,7 @@ pub struct SettingsState {
     pub dxvk_nvapi_source: Option<PathBuf>,
     pub theme: ThemeMode,
     pub language: LanguagePref,
+    pub font: Option<String>,
 }
 
 fn parse_bool(
@@ -136,6 +143,7 @@ impl SettingsState {
             dxvk_nvapi_source: None,
             theme: ThemeMode::Light,
             language: LanguagePref::Auto,
+            font: None,
         }
     }
 
@@ -201,6 +209,10 @@ impl SettingsState {
                 .map(PathBuf::from),
             theme: ThemeMode::from_setting(map.get(SETTING_UI_THEME).map(String::as_str)),
             language: pref,
+            font: map
+                .get(SETTING_UI_FONT)
+                .filter(|value| !value.is_empty())
+                .cloned(),
         })
     }
 
@@ -266,6 +278,7 @@ impl SettingsState {
             SETTING_UI_LANGUAGE.to_string(),
             Some(self.language.as_setting().to_string()),
         );
+        map.insert(SETTING_UI_FONT.to_string(), self.font.clone());
         Ok(map)
     }
 }
@@ -292,6 +305,14 @@ pub struct App {
     pub settings: SettingsState,
     pub theme_saving: bool,
     pub language_saving: bool,
+    pub font_saving: bool,
+    pub fonts: Vec<crate::fonts::FontEntry>,
+    pub fonts_loading: bool,
+    pub fonts_error: Option<String>,
+    pub font_panel_open: bool,
+    pub font_search: String,
+    pub font_cjk_only: bool,
+    pub font_missing_reported: bool,
     pub selected_game: Option<Uuid>,
     pub draft: Option<GameDraft>,
     pub draft_revision: u64,
@@ -337,6 +358,14 @@ impl App {
             settings,
             theme_saving: false,
             language_saving: false,
+            font_saving: false,
+            fonts: Vec::new(),
+            fonts_loading: true,
+            fonts_error: None,
+            font_panel_open: false,
+            font_search: String::new(),
+            font_cjk_only: true,
+            font_missing_reported: false,
             selected_game: None,
             draft: None,
             draft_revision: 0,
@@ -381,10 +410,11 @@ impl App {
                         },
                     );
                 app.service = Some(service);
-                (app, task)
+                (app, iced::Task::batch([task, Self::scan_fonts()]))
             }
             Err(error) => {
                 app.pending.loading = false;
+                app.fonts_loading = false;
                 app.fatal = Some(i18n::tr_args(
                     lang,
                     "app.fatal.database",
@@ -427,6 +457,8 @@ impl App {
             }
         }
 
+        self.apply_saved_font();
+
         if let Some(id) = self
             .settings
             .default_runner_id
@@ -447,6 +479,43 @@ impl App {
             .map(|game| Self::cover_task(game.id, game.cover_path.clone()))
             .collect();
         iced::Task::batch(tasks)
+    }
+
+    fn scan_fonts() -> iced::Task<Message> {
+        iced::Task::perform(
+            async {
+                tokio::task::spawn_blocking(crate::fonts::scan)
+                    .await
+                    .unwrap_or_else(|error| Err(error.to_string()))
+            },
+            Message::FontsLoaded,
+        )
+    }
+
+    /// Applies the stored family name once the installed list is available.
+    /// A name that no longer exists falls back to the bundled default.
+    fn apply_saved_font(&mut self) {
+        let Some(saved) = self.settings.font.as_deref() else {
+            crate::theme::set_active_font(None);
+            return;
+        };
+        if saved == crate::theme::FONT_FAMILY {
+            crate::theme::set_active_font(None);
+            return;
+        }
+        match self.fonts.iter().find(|font| font.name == saved).copied() {
+            Some(entry) => {
+                crate::theme::set_active_font(Some((entry.name, entry.has_bold)));
+                self.font_missing_reported = false;
+            }
+            None => {
+                crate::theme::set_active_font(None);
+                if !self.fonts.is_empty() && !self.font_missing_reported {
+                    self.font_missing_reported = true;
+                    self.error = Some(ErrorNotice::new(self.tr("settings.font.missing")));
+                }
+            }
+        }
     }
 
     /// Reads a cover off the UI thread and reports back through `CoverLoaded`.
@@ -992,6 +1061,29 @@ mod tests {
             .collect();
         let parsed = SettingsState::from_map(&stored, Path::new("/tmp/prefixes")).unwrap();
         assert_eq!(parsed, settings);
+    }
+
+    #[test]
+    fn settings_round_trip_preserves_font() {
+        let mut settings = SettingsState::default_for(Path::new("/tmp/prefixes"));
+        settings.font = Some("DejaVu Sans".to_owned());
+
+        let stored: BTreeMap<String, String> = settings
+            .to_map()
+            .unwrap()
+            .into_iter()
+            .filter_map(|(key, value)| value.map(|value| (key, value)))
+            .collect();
+        assert_eq!(stored[SETTING_UI_FONT], "DejaVu Sans");
+        assert_eq!(
+            SettingsState::from_map(&stored, Path::new("/tmp/prefixes"))
+                .unwrap()
+                .font,
+            settings.font
+        );
+
+        settings.font = None;
+        assert_eq!(settings.to_map().unwrap()[SETTING_UI_FONT], None);
     }
 
     #[test]

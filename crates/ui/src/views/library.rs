@@ -63,11 +63,12 @@ pub fn view(app: &App) -> Element<'_, Message> {
                 text(app.tr("library.all_games"))
                     .font(font(Weight::Bold))
                     .size(16),
-                text(app.games.len().to_string()).size(12).style(|theme| {
-                    iced::widget::text::Style {
+                text(app.games.len().to_string())
+                    .size(12)
+                    .font(font(Weight::Normal))
+                    .style(|theme| iced::widget::text::Style {
                         color: Some(tokens(theme).text_faint),
-                    }
-                }),
+                    }),
             ]
             .spacing(8)
             .align_y(iced::Alignment::Center),

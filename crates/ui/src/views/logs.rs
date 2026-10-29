@@ -50,6 +50,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
         container(
             text(app.tr_args("logs.read_failed", &[("error", error)]))
                 .size(13)
+                .font(theme::font(iced::font::Weight::Normal))
                 .style(log_text_style),
         )
         .width(Length::Fill)
@@ -57,11 +58,16 @@ pub fn view(app: &App) -> Element<'_, Message> {
         .center(Length::Fill)
         .into()
     } else if app.logs_content.is_empty() {
-        container(text(app.tr("logs.no_logs")).size(13).style(log_text_style))
-            .width(Length::Fill)
-            .height(Length::Fill)
-            .center(Length::Fill)
-            .into()
+        container(
+            text(app.tr("logs.no_logs"))
+                .size(13)
+                .font(theme::font(iced::font::Weight::Normal))
+                .style(log_text_style),
+        )
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .center(Length::Fill)
+        .into()
     } else {
         scrollable(
             text(app.logs_content.as_str())
@@ -93,6 +99,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
                 &[("count", &count)],
             ))
             .size(10)
+            .font(theme::font(iced::font::Weight::Normal))
             .style(log_text_style),
         );
     }

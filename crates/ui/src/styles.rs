@@ -169,6 +169,15 @@ pub fn segment_selected(theme: &Theme, _status: button::Status) -> button::Style
     }
 }
 
+pub fn list_panel(theme: &Theme) -> container::Style {
+    let t = tokens(theme);
+    container::Style {
+        background: Some(t.surface_alt.into()),
+        border: border(t.border, 1.0, 10.0),
+        ..Default::default()
+    }
+}
+
 pub fn segment_track(theme: &Theme) -> container::Style {
     let t = tokens(theme);
     container::Style {

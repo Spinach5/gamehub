@@ -1,8 +1,31 @@
 use iced::font::{Family, Weight};
 use iced::theme::Palette;
 use iced::{Color, Font, Theme};
+use std::sync::RwLock;
 
 pub const FONT_FAMILY: &str = "Noto Sans CJK SC";
+
+#[derive(Clone, Copy)]
+struct ActiveFont {
+    family: &'static str,
+    has_bold: bool,
+}
+
+/// `None` keeps the bundled default family.
+static ACTIVE: RwLock<Option<ActiveFont>> = RwLock::new(None);
+
+/// Switches the family used by every `theme::font` call. `None` restores the
+/// default; `has_bold` must reflect the family's installed faces.
+pub fn set_active_font(family: Option<(&str, bool)>) {
+    let active = family.map(|(name, has_bold)| ActiveFont {
+        family: Box::leak(name.to_owned().into_boxed_str()),
+        has_bold,
+    });
+    match ACTIVE.write() {
+        Ok(mut current) => *current = active,
+        Err(poisoned) => *poisoned.into_inner() = active,
+    }
+}
 
 /// Noto Sans CJK ships only Regular and Bold faces. An intermediate weight
 /// makes iced fall back to a face without CJK coverage, which draws Chinese
@@ -19,9 +42,24 @@ fn shipped_weight(weight: Weight) -> Weight {
 }
 
 pub fn font(weight: Weight) -> Font {
+    resolve_font(ACTIVE.read().ok().and_then(|active| *active), weight)
+}
+
+fn resolve_font(active: Option<ActiveFont>, weight: Weight) -> Font {
+    let (family, weight) = match active {
+        Some(active) if active.has_bold => (active.family, shipped_weight(weight)),
+        // Requesting a weight the family does not ship can make iced pick a
+        // fallback face without CJK glyphs, so stay on its regular face.
+        Some(active) => (active.family, Weight::Normal),
+        None => (FONT_FAMILY, shipped_weight(weight)),
+    };
+    font_named(family, weight)
+}
+
+pub fn font_named(family: &'static str, weight: Weight) -> Font {
     Font {
-        family: Family::Name(FONT_FAMILY),
-        weight: shipped_weight(weight),
+        family: Family::Name(family),
+        weight,
         ..Font::DEFAULT
     }
 }
@@ -241,14 +279,51 @@ mod tests {
             Weight::ExtraBold,
             Weight::Black,
         ] {
-            assert_eq!(font(weight).weight, Weight::Bold, "{weight:?}");
+            assert_eq!(
+                resolve_font(None, weight).weight,
+                Weight::Bold,
+                "{weight:?}"
+            );
         }
         for weight in [Weight::Thin, Weight::Light, Weight::Normal, Weight::Medium] {
-            assert_eq!(font(weight).weight, Weight::Normal, "{weight:?}");
+            assert_eq!(
+                resolve_font(None, weight).weight,
+                Weight::Normal,
+                "{weight:?}"
+            );
         }
         assert!(matches!(
-            font(Weight::Semibold).family,
+            resolve_font(None, Weight::Semibold).family,
             Family::Name(FONT_FAMILY)
         ));
+    }
+
+    #[test]
+    fn active_font_replaces_the_family_until_reset() {
+        let active = ActiveFont {
+            family: "DejaVu Sans",
+            has_bold: true,
+        };
+        let face = resolve_font(Some(active), Weight::Bold);
+        assert!(matches!(face.family, Family::Name("DejaVu Sans")));
+        assert_eq!(face.weight, Weight::Bold);
+
+        let reset = resolve_font(None, Weight::Bold);
+        assert!(matches!(reset.family, Family::Name(FONT_FAMILY)));
+    }
+
+    #[test]
+    fn families_without_a_bold_face_use_regular() {
+        let active = ActiveFont {
+            family: "Single Weight",
+            has_bold: false,
+        };
+        for weight in [Weight::Semibold, Weight::Bold, Weight::Black] {
+            assert_eq!(
+                resolve_font(Some(active), weight).weight,
+                Weight::Normal,
+                "{weight:?}"
+            );
+        }
     }
 }

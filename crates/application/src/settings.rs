@@ -12,6 +12,7 @@ pub const SETTING_AUTO_INSTALL_DXVK_NVAPI: &str = "auto_install_dxvk_nvapi";
 pub const SETTING_DXVK_NVAPI_SOURCE: &str = "dxvk_nvapi_source";
 pub const SETTING_UI_THEME: &str = "ui_theme";
 pub const SETTING_UI_LANGUAGE: &str = "ui_language";
+pub const SETTING_UI_FONT: &str = "ui_font";
 
 impl AppService {
     pub async fn save_default_runner(self, id: Option<Uuid>) -> Result<(), AppError> {

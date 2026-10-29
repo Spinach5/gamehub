@@ -29,7 +29,7 @@ pub fn danger<'a>(value: &'a str) -> Button<'a, Message> {
 }
 
 pub fn quiet<'a>(value: &'a str) -> Button<'a, Message> {
-    button(text(value).size(12))
+    button(text(value).size(12).font(theme::font(Weight::Normal)))
         .padding([6, 8])
         .style(styles::quiet)
 }
@@ -53,7 +53,7 @@ pub fn danger_small<'a>(value: &'a str) -> Button<'a, Message> {
 }
 
 pub fn quiet_small<'a>(value: &'a str) -> Button<'a, Message> {
-    button(text(value).size(11))
+    button(text(value).size(11).font(theme::font(Weight::Normal)))
         .padding([7, 8])
         .style(styles::quiet)
 }

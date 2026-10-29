@@ -108,6 +108,7 @@ fn basic_card<'a>(app: &'a App, draft: &'a GameDraft) -> Element<'a, Message> {
             text_input(app.tr("detail.name.placeholder"), draft.name.as_str())
                 .on_input(|value| Message::Draft(DraftAction::Name(value)))
                 .style(styles::text_input)
+                .font(font(Weight::Normal))
                 .width(Length::Fill)
         ),
         layout::field(
@@ -151,6 +152,7 @@ fn basic_card<'a>(app: &'a App, draft: &'a GameDraft) -> Element<'a, Message> {
             )
             .style(styles::pick_list)
             .menu_style(styles::menu)
+            .font(font(Weight::Normal))
         ),
     ]
     .spacing(10)
@@ -177,6 +179,7 @@ fn runner_card<'a>(app: &'a App, draft: &'a GameDraft) -> Element<'a, Message> {
             })
             .style(styles::pick_list)
             .menu_style(styles::menu)
+            .font(font(Weight::Normal))
         ),
         layout::field(
             "Prefix",
@@ -335,6 +338,7 @@ fn components_block<'a>(
                 })
                 .style(styles::pick_list)
                 .menu_style(styles::menu)
+                .font(font(Weight::Normal))
                 .width(Length::Fill),
                 preset_install,
             ]
@@ -351,6 +355,7 @@ fn components_block<'a>(
                 )
                 .on_input(Message::ComponentVerbChanged)
                 .style(styles::text_input)
+                .font(font(Weight::Normal))
                 .width(Length::Fill),
                 custom_install,
             ]
@@ -456,6 +461,7 @@ fn display_card<'a>(app: &'a App, draft: &'a GameDraft) -> Element<'a, Message> 
         )
         .style(styles::pick_list)
         .menu_style(styles::menu)
+        .font(font(Weight::Normal))
     };
 
     let gamescope_pick = {
@@ -474,6 +480,7 @@ fn display_card<'a>(app: &'a App, draft: &'a GameDraft) -> Element<'a, Message> 
         )
         .style(styles::pick_list)
         .menu_style(styles::menu)
+        .font(font(Weight::Normal))
     };
 
     let monitor_pick = {
@@ -493,6 +500,7 @@ fn display_card<'a>(app: &'a App, draft: &'a GameDraft) -> Element<'a, Message> 
         )
         .style(styles::pick_list)
         .menu_style(styles::menu)
+        .font(font(Weight::Normal))
         .width(Length::Fill)
     };
 
@@ -538,11 +546,13 @@ fn display_card<'a>(app: &'a App, draft: &'a GameDraft) -> Element<'a, Message> 
                     text_input(app.tr("detail.width"), draft.resolution_width.as_str())
                         .on_input(|value| Message::Draft(DraftAction::ResolutionWidth(value)))
                         .style(styles::text_input)
+                        .font(font(Weight::Normal))
                         .width(Length::Fixed(90.0)),
                     layout::muted("×").size(12),
                     text_input(app.tr("detail.height"), draft.resolution_height.as_str())
                         .on_input(|value| Message::Draft(DraftAction::ResolutionHeight(value)))
                         .style(styles::text_input)
+                        .font(font(Weight::Normal))
                         .width(Length::Fixed(90.0)),
                 ]
                 .spacing(8)
@@ -557,6 +567,7 @@ fn display_card<'a>(app: &'a App, draft: &'a GameDraft) -> Element<'a, Message> 
                     )
                     .on_input(|value| Message::Draft(DraftAction::RefreshRate(value)))
                     .style(styles::text_input)
+                    .font(font(Weight::Normal))
                     .width(Length::Fixed(100.0)),
                 ]
                 .spacing(8)
@@ -609,6 +620,7 @@ fn env_card<'a>(app: &'a App, draft: &'a GameDraft) -> Element<'a, Message> {
                         key
                     })))
                     .style(styles::text_input)
+                    .font(font(Weight::Normal))
                     .width(Length::FillPortion(2)),
                 text_input("VALUE", entry.value.as_str())
                     .on_input(
@@ -618,6 +630,7 @@ fn env_card<'a>(app: &'a App, draft: &'a GameDraft) -> Element<'a, Message> {
                         }))
                     )
                     .style(styles::text_input)
+                    .font(font(Weight::Normal))
                     .width(Length::FillPortion(3)),
                 controls::quiet_small(app.tr("common.delete"))
                     .on_press(Message::Draft(DraftAction::Env(EnvAction::Remove(index)))),
@@ -649,6 +662,7 @@ fn dll_card<'a>(app: &'a App, draft: &'a GameDraft) -> Element<'a, Message> {
                         }))
                     )
                     .style(styles::text_input)
+                    .font(font(Weight::Normal))
                     .width(Length::FillPortion(2)),
                 pick_list(
                     crate::widgets::override_mode_choices(app.lang),
@@ -659,7 +673,8 @@ fn dll_card<'a>(app: &'a App, draft: &'a GameDraft) -> Element<'a, Message> {
                     })),
                 )
                 .style(styles::pick_list)
-                .menu_style(styles::menu),
+                .menu_style(styles::menu)
+                .font(font(Weight::Normal)),
                 controls::quiet_small(app.tr("common.delete"))
                     .on_press(Message::Draft(DraftAction::Dll(DllAction::Remove(index)))),
             ]
@@ -687,6 +702,7 @@ fn args_card<'a>(app: &'a App, draft: &'a GameDraft) -> Element<'a, Message> {
                             ArgsAction::Value { index, value }
                         )))
                         .style(styles::text_input)
+                        .font(font(Weight::Normal))
                         .width(Length::Fill),
                     controls::quiet_small(app.tr("common.delete"))
                         .on_press(Message::Draft(DraftAction::Args(ArgsAction::Remove(index)))),
