@@ -2,6 +2,53 @@
 
 本文件记录每个实施阶段完成的内容、与规格的偏差以及验证结果。
 
+## v0.8.0 — 界面字体切换（2026-10-29）
+
+### 完成内容
+
+- 新增 `ui::fonts`：在 `spawn_blocking` 中调用
+  `fc-list --format='%{family[0]}\t%{style[0]}\t%{lang}\n'` 扫描本机字体家族，
+  去重并合并同一家族的多条记录（`cjk`、`has_bold` 取并集），跳过空名与
+  fontconfig 内部别名（`.` 开头），按名称不区分大小写排序；解析为纯函数，
+  单测直接喂样本输出。
+- 运行时字体状态（`ui::theme`）：进程级 `RwLock<Option<ActiveFont>>`，
+  `theme::font(weight)` 优先使用当前选择的家族；`Family::Name` 要求
+  `&'static str`，扫描时一次性 `Box::leak` 家族名。没有 Bold 面的家族强制使用
+  Regular，避免 iced 回退到无中文字形的面导致文字消失。
+- 设置 →「外观」卡片新增「界面字体」行与内联面板：搜索、重新扫描、
+  「仅显示支持中文」开关（默认开）、最多 80 项（超出提示用搜索缩小范围）、
+  「无中文」预警徽章与选中标记；点击即套用并保存。
+- 新增设置键 `ui_font`：点击后异步写入，保存期间再次点击会补存最新选择；
+  选「默认」清除该键。启动时由 `apply_loaded` 与 `FontsLoaded` 共同恢复
+  （两者任一先完成都能收敛到正确状态）；已保存字体未安装时回退默认并只提示
+  一次，设置值保留以便字体恢复后自动生效。
+- 全局字体覆盖：所有文本、按钮、`text_input`、`pick_list`、徽章等改用
+  `theme::font(...)`；日志正文与 winetricks 输出保持等宽。勾选符号固定使用
+  内置字体，避免所选字体缺 U+2713 时选中状态不可见。
+- 中英文各新增 15 个文案键（`settings.font.*`、`errors.font_scan`、
+  `app.error.font_save`）。
+
+### 与规格的偏差
+
+- `FontEntry.name` 使用 `&'static str`（扫描时泄漏一次）而非 `String`，
+  以满足 `Family::Name` 的静态生命周期要求；扫描次数有界。
+- 保存失败使用 `app.error.font_save`（不带错误参数），而不是规格中的
+  `errors.font_save`。
+- 新增规格表外的 `settings.font.preview`（候选字体预览串）与
+  `settings.font.missing`（已保存字体缺失提示）键。
+- 候选名称用当前界面字体渲染，预览串用候选字体本身渲染；否则中文家族名在
+  缺字形的家族下会显示为方框。
+
+### 验证
+
+- `cargo fmt --all -- --check`：通过。
+- `cargo clippy --workspace --all-targets -- -D warnings`：通过。
+- `cargo test --workspace`：311 passed，0 failed，2 ignored（含字体解析、
+  运行时切换、设置往返与保存竞态测试）。
+- 实机走查（X11 下抓取 iced 窗口）：浅色 / 深色主题下中文、英文、按钮文字
+  均可见；选择 DengXian 后整个界面立即切换，`ui_font` 写入数据库，重启后
+  保持；面板名称与预览完整显示，选中项有勾选标记。走查结束后已还原测试设置。
+
 ## v0.7.0 — 通过系统 winetricks 安装 Windows 组件（2026-10-29）
 
 ### 完成内容
