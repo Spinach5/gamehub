@@ -2,6 +2,53 @@
 
 本文件记录每个实施阶段完成的内容、与规格的偏差以及验证结果。
 
+## v0.7.0 — 通过系统 winetricks 安装 Windows 组件（2026-10-29）
+
+### 完成内容
+
+- `prefix` crate 新增 winetricks 支持：在 `PATH` 中探测可执行的系统
+  `winetricks`（不捆绑、不下载），校验 verb（仅 `[a-z0-9._=-]`、不得以 `-`
+  开头、禁止 `list-all` 等管理命令、长度 ≤ 64），从
+  `${WINEPREFIX}/winetricks.log` 读取已安装 verb（去重、剔除
+  `w_workaround*` 内部项），并为 Wine / Proton 构造调用命令：
+  Wine 使用 prefix 目录与 `WINE`；Proton 使用 `<compat>/pfx` 作为
+  `WINEPREFIX`、`files/bin/wine` 作为 `WINE`，同时传入
+  `STEAM_COMPAT_DATA_PATH`、`STEAM_COMPAT_CLIENT_INSTALL_PATH` 与
+  `PROTONPATH`。
+- `application` crate 新增组件安装服务：每次只跑一个 verb（`winetricks -q`），
+  独立进程组启动，stdout/stderr 逐行流式回传并写入
+  `logs/winetricks/<game>.log`（每次运行截断重写）；取消时用进程组
+  SIGTERM→SIGKILL，连同 winetricks 拉起的安装器一起结束。安装前后校验 prefix
+  已初始化，非法 verb 返回 `AppError::ComponentVerbInvalid`。
+- `launcher-core` 新增 `AppPaths::component_log_path`。
+- 详情页「兼容层与 Prefix」卡片内内联「Windows 组件」区块：预设
+  （vcrun2019 / dotnet48 / corefonts / d3dx9 / xact / msxml6）与自定义 verb、
+  已安装列表、最近 4 行实时输出、取消按钮与完整日志路径。未检测到 winetricks、
+  游戏未保存、Prefix 未初始化、同 Prefix 正在运行或安装、删除游戏 / Runner /
+  Prefix 时均有拦截与提示。
+- 中英文各新增 31 个文案键；`AppError::ComponentVerbInvalid` 与
+  `AppError::ComponentIo` 已接入本地化错误渲染。
+
+### 与规格的偏差
+
+- 只调用系统 `winetricks`：未检测到时仅提示用户安装，不自动下载或内置副本。
+- 已安装状态以 prefix 内的 `winetricks.log` 为准，不写入数据库；手工执行的
+  winetricks 安装同样会被列出。
+- 每次安装都会截断该游戏的组件日志，不保留历史运行记录。
+- 取消只负责终止进程，不清理 winetricks 已下载/解压的中间文件。
+- 预设列表是固定集合，其余组件需在自定义输入框填写 verb。
+
+### 验证
+
+- `cargo fmt --all -- --check`：通过。
+- `cargo test --workspace`：299 passed，0 failed，2 ignored。
+- `cargo clippy --workspace --all-targets -- -D warnings`：通过。
+- 真实 winetricks 20250102：在 `/tmp` 临时 prefix 上按组件安装使用的环境
+  （`WINEPREFIX` + `WINE=/usr/bin/wine`）执行 `winetricks -q fontsmooth-rgb`，
+  退出码 0，`winetricks.log` 写入 `fontsmooth=rgb`，与已安装列表读取逻辑一致。
+- 界面走查受限：本机为 GNOME Wayland，无法截取 iced 窗口，组件区块的布局与
+  文案只做了编译与键值检查，未做像素级人工走查。
+
 ## v0.6.0 — 游玩时长统计与启动会话保活（2026-10-29）
 
 ### 完成内容
