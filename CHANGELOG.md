@@ -2,6 +2,57 @@
 
 本文件记录每个实施阶段完成的内容、与规格的偏差以及验证结果。
 
+## v0.9.0 — Linux 原生游戏（2026-10-30）
+
+### 完成内容
+
+- 领域与存储：新增 `Platform { Windows, Linux }`（默认 `Windows`，serde
+  `snake_case`，`is_native()` 标识原生分支），`Game.platform` 进入固定契约；
+  SQLite schema 升到 v4（`platform TEXT NOT NULL DEFAULT 'windows'`），
+  v1/v2/v3 库链式迁移原地升级，已有记录默认为 Windows；行映射与
+  `update_game` 同步读写该字段。
+- 编辑器：`GameDraft::new` 增加平台参数，新增 `DraftAction::Platform`；
+  Prefix 的空路径/相对路径校验只对 Windows 生效。切换平台不清空 runner、
+  prefix 与 DLL override，切回 Windows 后原值继续生效。
+- 启动管线：`LaunchRequest.runner` 改为 `Option<Runner>`。原生游戏在
+  `validate` 中跳过 runner 校验、prefix 状态与架构检查、DLL 名称校验，
+  `build_plan` 直接执行 `executable_path`；`build_env` 不注入任何 Wine/Proton
+  基础变量与调优变量（Esync/Fsync/MangoHud/NVAPI 均不生效），仍应用
+  全局/游戏环境变量、启动参数、显示器选择与 gamescope 包装。
+- 应用层：原生游戏跳过 prefix 计划与 DXVK-NVAPI 安装；运行态改为记录
+  `wine_prefix: Option<PathBuf>`；会话结束只等待启动器进程组，停止也只终止
+  进程组，不调用 `wineserver -k`。
+- UI：新建游戏先弹出平台选择（Windows / Linux 原生），Windows 文件对话框只
+  过滤 `.exe`、Linux 不过滤；详情页新增平台下拉（可随时切换），原生游戏隐藏
+  Runner 与 DLL Override 卡片、架构字段、Prefix/DXVK 摘要与 winetricks 区块，
+  但保留其数据；游戏卡片对原生游戏显示「Linux 原生」而非 Runner 名称；
+  `running` 改为 `HashMap<Uuid, Option<PathBuf>>`。
+- 中英文各新增 11 个文案键（`new_game.*`、`choices.platform.*`、
+  `detail.platform`、`detail.subtitle.*_native`），游戏库空状态文案由
+  「选择一个 .exe」改为「添加游戏」。
+
+### 与规格的偏差
+
+- 原生游戏没有 `wineserver -k` 兜底：若游戏自行 daemonize 脱离进程组，会话
+  会被提前判定结束，停止按钮也可能失效。
+- 显示选择对原生游戏只在 X11/XWayland 下注入 `__GL_SYNC_DISPLAY_DEVICE`；
+  纯 Wayland 原生窗口无法保证落到所选显示器，也不做 primary 切换。
+- 文件对话框只按平台设置过滤器，未额外校验扩展名：Windows 游戏仍可选到
+  非 `.exe` 文件。
+- 平台只影响启动路径，不迁移数据：把 Windows 游戏改为 Linux 后其 prefix 目录
+  仍留在磁盘上，改回 Windows 时继续使用原路径。
+- winetricks 组件与 DXVK/NVAPI 入口对原生游戏直接隐藏，没有额外说明文案。
+
+### 验证
+
+- `cargo fmt --all -- --check`：通过。
+- `cargo clippy --workspace --all-targets -- -D warnings`：通过。
+- `cargo test --workspace`：329 passed，0 failed，2 ignored（新增平台序列化、
+  schema v3→v4 迁移、编辑器平台校验、启动计划与环境合成、应用层会话与 UI
+  状态测试）。
+- 原生启动只对照测试可执行文件验证，未覆盖真实商业游戏；gamescope 仍未安装，
+  相关路径只有参数级测试。详见 `docs/specs/11-acceptance.md`「当前增量验收」。
+
 ## v0.8.0 — 界面字体切换（2026-10-29）
 
 ### 完成内容

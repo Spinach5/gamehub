@@ -1,7 +1,7 @@
 # P9 配置编辑与启动打通 Implementation Plan
 
 > 历史实施计划（2026-10-27，P9）。Task U12–U15 的代码片段与验收记录保留原样；
-> 与当前代码不一致的契约、文件路径和流程以文末「当前实现（v0.8.0）」为准。
+> 与当前代码不一致的契约、文件路径和流程以文末「当前实现（v0.9.0）」为准。
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -979,7 +979,7 @@ git commit -m "feat(ui): finish configuration editors and launch flow"
   - `launch_game` 在进程退出后写 `last_played_at`；即使非零退出码也记录，
     与“最近游玩”语义一致。
 
-## 当前实现（v0.8.0）
+## 当前实现（v0.9.0）
 
 P9 的 `tasks::launch_game` 已由 `crates/application/src/launching.rs` 接管；
 UI 只负责构造 `LaunchRequest`、消费事件并维护展示状态。

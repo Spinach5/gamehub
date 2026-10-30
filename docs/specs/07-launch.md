@@ -1424,7 +1424,7 @@ git commit -m "chore(launch): finish launch phase"
   - `validate` 的 working_dir 检查用 `filter` 形式替代嵌套 `if`，
     避免 `clippy::collapsible_if`，行为不变。
 
-## 当前实现（v0.8.0）
+## 当前实现（v0.9.0）
 
 - 契约以本文「固定契约」为准：`runner: Option<Runner>`、`LaunchTuning`、`log_path`、`dxvk_nvapi_source` 是 P6 之后新增的字段；Task L3/L4 中的 `LaunchRequest` 构造片段缺少它们，属历史记录。
 - 平台分支：
