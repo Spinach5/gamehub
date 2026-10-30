@@ -1,5 +1,7 @@
 use crate::i18n::{Lang, tr};
-use application::{Arch, DisplayBackend, GamescopeMode, MonitorOutput, OverrideMode, Runner};
+use application::{
+    Arch, DisplayBackend, GamescopeMode, MonitorOutput, OverrideMode, Platform, Runner,
+};
 use std::fmt;
 use uuid::Uuid;
 
@@ -22,6 +24,20 @@ impl<T> fmt::Display for Choice<T> {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(&self.label)
     }
+}
+
+pub fn platform_choices(lang: Lang) -> Vec<Choice<Platform>> {
+    vec![
+        Choice::new(Platform::Windows, tr(lang, "choices.platform.windows")),
+        Choice::new(Platform::Linux, tr(lang, "choices.platform.linux")),
+    ]
+}
+
+pub fn platform_choice(lang: Lang, value: Platform) -> Choice<Platform> {
+    platform_choices(lang)
+        .into_iter()
+        .find(|choice| choice.value == value)
+        .unwrap_or_else(|| Choice::new(Platform::Windows, tr(lang, "choices.platform.windows")))
 }
 
 pub fn arch_choices(lang: Lang) -> Vec<Choice<Arch>> {

@@ -6,8 +6,8 @@ use crate::i18n::{self, Lang, LanguagePref};
 use crate::theme::ThemeMode;
 use application::editor::{DraftAction, EnvRow, GameDraft, env_rows_to_map};
 use application::{
-    AppPaths, AppService, Game, MonitorOutput, PrefixPlan, PrefixStatus, Runner, SessionType,
-    validate_env_key,
+    AppPaths, AppService, Game, MonitorOutput, Platform, PrefixPlan, PrefixStatus, Runner,
+    SessionType, validate_env_key,
 };
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -323,7 +323,8 @@ pub struct App {
     pub mangohud_path: Option<PathBuf>,
     pub winetricks_path: Option<PathBuf>,
     pub pending: PendingState,
-    pub running: HashMap<Uuid, PathBuf>, // game id -> prefix path
+    pub running: HashMap<Uuid, Option<PathBuf>>, // game id -> prefix path (None for native)
+    pub new_game_platform: Option<Platform>,
     pub starting: HashSet<Uuid>,
     pub stopping: HashSet<Uuid>,
     pub dxvk_dir: Option<PathBuf>,
@@ -380,6 +381,7 @@ impl App {
                 ..PendingState::default()
             },
             running: HashMap::new(),
+            new_game_platform: None,
             starting: HashSet::new(),
             stopping: HashSet::new(),
             dxvk_dir: None,
@@ -662,12 +664,12 @@ impl App {
         use crate::dialogs::DialogIntent;
 
         match intent {
-            DialogIntent::PickExe => {
+            DialogIntent::PickExe(platform) => {
                 if let Some(path) = path {
                     if let Some(draft) = &mut self.draft {
                         draft.executable_path = Some(path);
                     } else {
-                        let mut draft = GameDraft::new(path);
+                        let mut draft = GameDraft::new(path, platform);
                         if draft.name.is_empty() {
                             draft.name = self.tr("draft.default_name").to_string();
                         }
@@ -777,6 +779,9 @@ impl App {
                 return iced::Task::none();
             }
         };
+        if game.platform.is_native() {
+            return iced::Task::none();
+        }
         let plan = match self.prefix_plan_for(&game) {
             Ok(plan) => plan,
             Err(_) => {
@@ -796,6 +801,9 @@ impl App {
                 return iced::Task::none();
             }
         };
+        if game.platform.is_native() {
+            return iced::Task::none();
+        }
         let plan = match self.prefix_plan_for(&game) {
             Ok(plan) => plan,
             Err(_) => {
@@ -1109,12 +1117,15 @@ mod tests {
     #[test]
     fn launch_state_moves_from_starting_to_playing() {
         let mut app = app();
-        let game = GameDraft::new(PathBuf::from("/tmp/gamehub-ui-test/game.exe"))
-            .to_game()
-            .unwrap();
+        let game = GameDraft::new(
+            PathBuf::from("/tmp/gamehub-ui-test/game.exe"),
+            Platform::Windows,
+        )
+        .to_game()
+        .unwrap();
         let id = game.id;
         app.games.push(game);
-        app.running.insert(id, PathBuf::from("/tmp/prefix"));
+        app.running.insert(id, Some(PathBuf::from("/tmp/prefix")));
         app.starting.insert(id);
         assert_eq!(app.launch_state_label(id), Some("启动中"));
 
@@ -1144,9 +1155,12 @@ mod tests {
     #[test]
     fn saved_draft_does_not_lower_session_totals() {
         let mut app = app();
-        let mut game = GameDraft::new(PathBuf::from("/tmp/gamehub-ui-test/game.exe"))
-            .to_game()
-            .unwrap();
+        let mut game = GameDraft::new(
+            PathBuf::from("/tmp/gamehub-ui-test/game.exe"),
+            Platform::Windows,
+        )
+        .to_game()
+        .unwrap();
         game.playtime_seconds = 600;
         game.last_played_at = Some(1_700_000_600);
         app.games.push(game.clone());
@@ -1164,7 +1178,7 @@ mod tests {
     fn stopping_a_running_game_is_labelled() {
         let mut app = app();
         let id = Uuid::new_v4();
-        app.running.insert(id, PathBuf::from("/tmp/prefix"));
+        app.running.insert(id, Some(PathBuf::from("/tmp/prefix")));
         app.stopping.insert(id);
 
         assert_eq!(app.launch_state_label(id), Some("结束中"));
@@ -1186,7 +1200,7 @@ mod tests {
     fn failed_launch_clears_running_state_and_reports_error() {
         let mut app = app();
         let id = Uuid::new_v4();
-        app.running.insert(id, PathBuf::from("/tmp/prefix"));
+        app.running.insert(id, Some(PathBuf::from("/tmp/prefix")));
         app.starting.insert(id);
 
         let _ = app.update(Message::LaunchEvent(LaunchEvent::Failed {
@@ -1243,14 +1257,20 @@ mod tests {
         let mut app = app();
         let id = Uuid::new_v4();
 
-        let mut draft = GameDraft::new(PathBuf::from("/tmp/gamehub-ui-test/game.exe"));
+        let mut draft = GameDraft::new(
+            PathBuf::from("/tmp/gamehub-ui-test/game.exe"),
+            Platform::Windows,
+        );
         draft.id = id;
         draft.name = "Edited".into();
         app.draft = Some(draft);
         app.selected_game = Some(id);
         app.draft_revision = 7;
 
-        let mut saved = GameDraft::new(PathBuf::from("/tmp/gamehub-ui-test/game.exe"));
+        let mut saved = GameDraft::new(
+            PathBuf::from("/tmp/gamehub-ui-test/game.exe"),
+            Platform::Windows,
+        );
         saved.id = id;
         saved.name = "Saved".into();
         let game = saved.to_game().unwrap();
@@ -1286,7 +1306,10 @@ mod tests {
         let mut app = app();
         let id = Uuid::new_v4();
 
-        let mut draft = GameDraft::new(PathBuf::from("/tmp/gamehub-ui-test/game.exe"));
+        let mut draft = GameDraft::new(
+            PathBuf::from("/tmp/gamehub-ui-test/game.exe"),
+            Platform::Windows,
+        );
         draft.id = id;
         draft.name = "Before".into();
         app.draft = Some(draft);
@@ -1295,7 +1318,10 @@ mod tests {
         app.cover_handles
             .insert(id, iced::widget::image::Handle::from_bytes(vec![1, 2, 3]));
 
-        let mut saved = GameDraft::new(PathBuf::from("/tmp/gamehub-ui-test/game.exe"));
+        let mut saved = GameDraft::new(
+            PathBuf::from("/tmp/gamehub-ui-test/game.exe"),
+            Platform::Windows,
+        );
         saved.id = id;
         saved.name = "After".into();
         saved.cover_path = None;
@@ -1315,9 +1341,12 @@ mod tests {
     fn cover_loaded_ignores_stale_paths_and_installs_fresh_bytes() {
         let mut app = app();
         let id = Uuid::new_v4();
-        let mut game = GameDraft::new(PathBuf::from("/tmp/gamehub-ui-test/game.exe"))
-            .to_game()
-            .unwrap();
+        let mut game = GameDraft::new(
+            PathBuf::from("/tmp/gamehub-ui-test/game.exe"),
+            Platform::Windows,
+        )
+        .to_game()
+        .unwrap();
         game.id = id;
         game.cover_path = Some(PathBuf::from("/tmp/gamehub-ui-test/cover.png"));
         app.games.push(game);
@@ -1380,7 +1409,7 @@ mod tests {
         app.settings.language = LanguagePref::Fixed(&crate::i18n::ZH_CN);
         app.lang = &crate::i18n::ZH_CN;
 
-        let mut draft = GameDraft::new(exe);
+        let mut draft = GameDraft::new(exe, Platform::Windows);
         draft.name = "Cover Test".into();
         draft.cover_source = Some(source);
         app.draft = Some(draft);
@@ -1442,9 +1471,12 @@ mod tests {
         std::fs::write(&cover, COVER_PNG).unwrap();
 
         let mut app = app();
-        let mut game = GameDraft::new(PathBuf::from("/tmp/gamehub-ui-test/game.exe"))
-            .to_game()
-            .unwrap();
+        let mut game = GameDraft::new(
+            PathBuf::from("/tmp/gamehub-ui-test/game.exe"),
+            Platform::Windows,
+        )
+        .to_game()
+        .unwrap();
         game.cover_path = Some(cover.clone());
         let id = game.id;
 

@@ -114,7 +114,7 @@ pub fn status(plan: &PrefixPlan) -> PrefixStatus {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use launcher_core::{Arch, Game, RunnerKind};
+    use launcher_core::{Arch, Game, Platform, RunnerKind};
     use std::fs;
     use std::path::{Path, PathBuf};
     use tempfile::tempdir;
@@ -163,6 +163,7 @@ mod tests {
             runner_id: None,
             prefix_path: Some(PathBuf::from("/shared/prefix")),
             cover_path: None,
+            platform: Platform::Windows,
             arch: Arch::Win64,
             display: Default::default(),
             env_overrides: Default::default(),
@@ -188,6 +189,7 @@ mod tests {
             runner_id: None,
             prefix_path: None,
             cover_path: None,
+            platform: Platform::Windows,
             arch: Arch::Win32,
             display: Default::default(),
             env_overrides: Default::default(),
@@ -216,6 +218,7 @@ mod tests {
             runner_id: None,
             prefix_path: Some(PathBuf::from("/shared/prefix")),
             cover_path: None,
+            platform: Platform::Windows,
             arch: Arch::Win32,
             display: Default::default(),
             env_overrides: Default::default(),

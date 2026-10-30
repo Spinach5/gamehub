@@ -249,6 +249,9 @@ fn launch_or_stop<'a>(app: &'a App, game: &'a Game, small: bool) -> Element<'a, 
 }
 
 fn runner_label(app: &App, game: &Game) -> String {
+    if game.platform.is_native() {
+        return app.tr("choices.platform.linux").to_owned();
+    }
     match game.runner_id {
         None => app.tr("launch.default_runner").to_owned(),
         Some(id) => app

@@ -67,9 +67,9 @@ pub fn validate_dll_name(name: &str) -> Result<(), LaunchError> {
     Ok(())
 }
 
-fn apply_tuning(env: &mut BTreeMap<String, String>, request: &LaunchRequest) {
+fn apply_tuning(env: &mut BTreeMap<String, String>, request: &LaunchRequest, kind: RunnerKind) {
     let tuning = &request.tuning;
-    match request.runner.kind {
+    match kind {
         RunnerKind::Wine => {
             if tuning.enable_esync {
                 env.insert("WINEESYNC".into(), "1".into());
@@ -99,30 +99,17 @@ fn apply_tuning(env: &mut BTreeMap<String, String>, request: &LaunchRequest) {
     }
 }
 
-fn apply_x11_driver(env: &mut BTreeMap<String, String>, request: &LaunchRequest) {
+fn apply_x11_driver(env: &mut BTreeMap<String, String>, kind: RunnerKind) {
     env.remove("WAYLANDDRV_PRIMARY_MONITOR");
     env.remove("PROTON_WAYLAND_MONITOR");
     env.insert("WINE_GRAPHICS_DRIVER".into(), "x11".into());
-    if request.runner.kind == RunnerKind::Proton {
+    if kind == RunnerKind::Proton {
         env.insert("PROTON_ENABLE_WAYLAND".into(), "0".into());
         env.insert("PROTON_USE_WAYLAND".into(), "0".into());
     }
 }
 
 pub fn build_env(request: &LaunchRequest) -> Result<BTreeMap<String, String>, LaunchError> {
-    let prefix_plan = plan_for_game(
-        &request.game,
-        request.runner.clone(),
-        &request.default_prefix_root,
-        request.steam_compat_client.clone(),
-    );
-    let context = WineContext {
-        runner: request.runner.clone(),
-        prefix: prefix_plan.path,
-        arch: prefix_plan.arch,
-        steam_compat_client: request.steam_compat_client.clone(),
-    };
-
     let mut env = request.inherited_env.clone();
     env.remove("WINEDLLOVERRIDES");
     for key in TUNING_VARIABLES {
@@ -143,11 +130,28 @@ pub fn build_env(request: &LaunchRequest) -> Result<BTreeMap<String, String>, La
         validate_env_key(key)?;
     }
 
-    env.extend(context.base_env());
-    apply_tuning(&mut env, request);
+    // Native games run outside Wine, so none of the Wine/Proton environment
+    // applies; only display selection remains meaningful.
+    if let Some(runner) = &request.runner {
+        let prefix_plan = plan_for_game(
+            &request.game,
+            runner.clone(),
+            &request.default_prefix_root,
+            request.steam_compat_client.clone(),
+        );
+        let context = WineContext {
+            runner: runner.clone(),
+            prefix: prefix_plan.path,
+            arch: prefix_plan.arch,
+            steam_compat_client: request.steam_compat_client.clone(),
+        };
+        env.extend(context.base_env());
+        apply_tuning(&mut env, request, runner.kind);
+    }
     env.extend(request.global_env.clone());
     env.extend(request.game.env_overrides.clone());
 
+    let wine_runner = request.runner.as_ref().map(|runner| runner.kind);
     let gamescope_available = request.gamescope_path.is_some();
     let uses_gamescope =
         should_use_gamescope(&request.game.display, request.session, gamescope_available);
@@ -163,33 +167,42 @@ pub fn build_env(request: &LaunchRequest) -> Result<BTreeMap<String, String>, La
             match request.session {
                 SessionType::X11 => {
                     env.insert("__GL_SYNC_DISPLAY_DEVICE".into(), monitor.to_string());
-                    apply_x11_driver(&mut env, request);
+                    if let Some(kind) = wine_runner {
+                        apply_x11_driver(&mut env, kind);
+                    }
                 }
                 SessionType::Wayland if env.contains_key("DISPLAY") => {
                     // The selected monitor is applied by making it the XRandR
-                    // primary, which only affects Wine's X11 driver.
+                    // primary, which only affects Wine's X11 driver. Native
+                    // OpenGL games still honour the GL sync variable.
                     env.insert("__GL_SYNC_DISPLAY_DEVICE".into(), monitor.to_string());
-                    apply_x11_driver(&mut env, request);
+                    if let Some(kind) = wine_runner {
+                        apply_x11_driver(&mut env, kind);
+                    }
                 }
                 SessionType::Wayland => {
-                    env.remove("WINE_GRAPHICS_DRIVER");
-                    env.insert("WAYLANDDRV_PRIMARY_MONITOR".into(), monitor.to_string());
-                    if request.runner.kind == RunnerKind::Proton {
-                        env.insert("PROTON_ENABLE_WAYLAND".into(), "1".into());
-                        env.insert("PROTON_USE_WAYLAND".into(), "1".into());
-                        env.insert("PROTON_WAYLAND_MONITOR".into(), monitor.to_string());
+                    if let Some(kind) = wine_runner {
+                        env.remove("WINE_GRAPHICS_DRIVER");
+                        env.insert("WAYLANDDRV_PRIMARY_MONITOR".into(), monitor.to_string());
+                        if kind == RunnerKind::Proton {
+                            env.insert("PROTON_ENABLE_WAYLAND".into(), "1".into());
+                            env.insert("PROTON_USE_WAYLAND".into(), "1".into());
+                            env.insert("PROTON_WAYLAND_MONITOR".into(), monitor.to_string());
+                        }
                     }
                 }
                 SessionType::Unknown if env.contains_key("DISPLAY") => {
                     env.insert("__GL_SYNC_DISPLAY_DEVICE".into(), monitor.to_string());
-                    apply_x11_driver(&mut env, request);
+                    if let Some(kind) = wine_runner {
+                        apply_x11_driver(&mut env, kind);
+                    }
                 }
                 SessionType::Unknown => {}
             }
         }
     }
 
-    if !request.game.dll_overrides.is_empty() {
+    if !request.game.platform.is_native() && !request.game.dll_overrides.is_empty() {
         for entry in &request.game.dll_overrides {
             validate_dll_name(&entry.dll_name)?;
         }
@@ -272,7 +285,7 @@ mod tests {
     use crate::LaunchRequest;
     use display::SessionType;
     use launcher_core::{
-        Arch, DisplayConfig, Game, GamescopeMode, Runner, RunnerKind, RunnerSource,
+        Arch, DisplayConfig, Game, GamescopeMode, Platform, Runner, RunnerKind, RunnerSource,
     };
     use std::collections::BTreeMap;
     use std::path::PathBuf;
@@ -301,6 +314,7 @@ mod tests {
             runner_id: None,
             prefix_path: Some(PathBuf::from("/data/prefix")),
             cover_path: None,
+            platform: Platform::Windows,
             arch: Arch::Win64,
             display: DisplayConfig::default(),
             env_overrides: BTreeMap::new(),
@@ -315,7 +329,7 @@ mod tests {
     fn request() -> LaunchRequest {
         LaunchRequest {
             game: game(),
-            runner: runner(),
+            runner: Some(runner()),
             session: SessionType::X11,
             global_env: BTreeMap::new(),
             inherited_env: BTreeMap::new(),
@@ -444,9 +458,10 @@ mod tests {
         let mut request = request();
         request.session = SessionType::Wayland;
         request.inherited_env = BTreeMap::from([("DISPLAY".into(), ":0".into())]);
-        request.runner.kind = RunnerKind::Proton;
-        request.runner.binary_path = PathBuf::from("/opt/proton/proton");
-        request.runner.root_dir = PathBuf::from("/opt/proton");
+        let runner = request.runner.as_mut().unwrap();
+        runner.kind = RunnerKind::Proton;
+        runner.binary_path = PathBuf::from("/opt/proton/proton");
+        runner.root_dir = PathBuf::from("/opt/proton");
         request.game.prefix_path = Some(PathBuf::from("/data/compat"));
         request.game.display.monitor = Some("HDMI-1".into());
 
@@ -462,9 +477,10 @@ mod tests {
     fn wayland_monitor_enables_proton_wayland_driver_without_xwayland() {
         let mut request = request();
         request.session = SessionType::Wayland;
-        request.runner.kind = RunnerKind::Proton;
-        request.runner.binary_path = PathBuf::from("/opt/proton/proton");
-        request.runner.root_dir = PathBuf::from("/opt/proton");
+        let runner = request.runner.as_mut().unwrap();
+        runner.kind = RunnerKind::Proton;
+        runner.binary_path = PathBuf::from("/opt/proton/proton");
+        runner.root_dir = PathBuf::from("/opt/proton");
         request.game.prefix_path = Some(PathBuf::from("/data/compat"));
         request.game.display.monitor = Some("HDMI-1".into());
 
@@ -481,9 +497,10 @@ mod tests {
     fn wayland_without_selected_monitor_keeps_driver_defaults() {
         let mut request = request();
         request.session = SessionType::Wayland;
-        request.runner.kind = RunnerKind::Proton;
-        request.runner.binary_path = PathBuf::from("/opt/proton/proton");
-        request.runner.root_dir = PathBuf::from("/opt/proton");
+        let runner = request.runner.as_mut().unwrap();
+        runner.kind = RunnerKind::Proton;
+        runner.binary_path = PathBuf::from("/opt/proton/proton");
+        runner.root_dir = PathBuf::from("/opt/proton");
         request.game.prefix_path = Some(PathBuf::from("/data/compat"));
 
         let env = build_env(&request).unwrap();
@@ -497,9 +514,10 @@ mod tests {
     fn gamescope_uses_output_flag_instead_of_monitor_env() {
         let mut request = request();
         request.session = SessionType::Wayland;
-        request.runner.kind = RunnerKind::Proton;
-        request.runner.binary_path = PathBuf::from("/opt/proton/proton");
-        request.runner.root_dir = PathBuf::from("/opt/proton");
+        let runner = request.runner.as_mut().unwrap();
+        runner.kind = RunnerKind::Proton;
+        runner.binary_path = PathBuf::from("/opt/proton/proton");
+        runner.root_dir = PathBuf::from("/opt/proton");
         request.game.prefix_path = Some(PathBuf::from("/data/compat"));
         request.game.display.monitor = Some("HDMI-1".into());
         request.game.display.gamescope = GamescopeMode::Forced;
@@ -514,9 +532,10 @@ mod tests {
     #[test]
     fn proton_environment_uses_compat_variables() {
         let mut request = request();
-        request.runner.kind = RunnerKind::Proton;
-        request.runner.binary_path = PathBuf::from("/opt/proton/proton");
-        request.runner.root_dir = PathBuf::from("/opt/proton");
+        let runner = request.runner.as_mut().unwrap();
+        runner.kind = RunnerKind::Proton;
+        runner.binary_path = PathBuf::from("/opt/proton/proton");
+        runner.root_dir = PathBuf::from("/opt/proton");
         request.game.prefix_path = Some(PathBuf::from("/data/compat"));
         request.game.arch = Arch::Win32;
 
@@ -583,7 +602,7 @@ mod tests {
     #[test]
     fn proton_disables_esync_and_fsync_only_when_turned_off() {
         let mut request = request();
-        request.runner.kind = RunnerKind::Proton;
+        request.runner.as_mut().unwrap().kind = RunnerKind::Proton;
         request.tuning = tuning();
 
         let env = build_env(&request).unwrap();
@@ -614,7 +633,7 @@ mod tests {
     #[test]
     fn proton_nvapi_environment_toggles_between_enable_and_disable() {
         let mut request = request();
-        request.runner.kind = RunnerKind::Proton;
+        request.runner.as_mut().unwrap().kind = RunnerKind::Proton;
         request.tuning = crate::LaunchTuning {
             enable_dxvk_nvapi: true,
             ..crate::LaunchTuning::default()
@@ -668,5 +687,52 @@ mod tests {
         let env = build_env(&request).unwrap();
         assert_eq!(env["WINEESYNC"], "0");
         assert_eq!(env["WINEFSYNC"], "1");
+    }
+
+    fn native_request() -> LaunchRequest {
+        let mut request = request();
+        request.game.platform = Platform::Linux;
+        request.runner = None;
+        request
+    }
+
+    #[test]
+    fn native_games_skip_wine_environment() {
+        let mut request = native_request();
+        request.tuning = crate::LaunchTuning {
+            enable_esync: true,
+            enable_fsync: true,
+            enable_dxvk_nvapi: true,
+            ..crate::LaunchTuning::default()
+        };
+        request.game.dll_overrides = vec![DllOverride {
+            dll_name: "d3d11".into(),
+            mode: OverrideMode::Native,
+        }];
+
+        let env = build_env(&request).unwrap();
+        for key in [
+            "WINEPREFIX",
+            "WINEARCH",
+            "WINEESYNC",
+            "WINEFSYNC",
+            "DXVK_ENABLE_NVAPI",
+            "WINEDLLOVERRIDES",
+        ] {
+            assert!(
+                !env.contains_key(key),
+                "{key} should be absent for native games"
+            );
+        }
+    }
+
+    #[test]
+    fn native_x11_monitor_still_sets_gl_display_device() {
+        let mut request = native_request();
+        request.game.display.monitor = Some("eDP-1".into());
+
+        let env = build_env(&request).unwrap();
+        assert_eq!(env["__GL_SYNC_DISPLAY_DEVICE"], "eDP-1");
+        assert!(!env.contains_key("WINE_GRAPHICS_DRIVER"));
     }
 }

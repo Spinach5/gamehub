@@ -24,7 +24,7 @@ impl AppService {
     pub async fn delete(
         self,
         target: DeleteTarget,
-        running: HashMap<Uuid, PathBuf>,
+        running: HashMap<Uuid, Option<PathBuf>>,
         default_runner_id: Option<Uuid>,
         logs_dir: PathBuf,
     ) -> Result<(), AppError> {
@@ -47,7 +47,10 @@ impl AppService {
             }
             DeleteTarget::Prefix { game_id, path } => {
                 if running.contains_key(&game_id)
-                    || running.values().any(|running_path| running_path == &path)
+                    || running
+                        .values()
+                        .flatten()
+                        .any(|running_path| running_path == &path)
                 {
                     return Err(AppError::PrefixInUseByRunningGame);
                 }

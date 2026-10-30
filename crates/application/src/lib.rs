@@ -33,6 +33,6 @@ pub use settings::{
 pub use display::{MonitorOutput, SessionType, should_use_gamescope};
 pub use launcher_core::{
     AppPaths, Arch, DisplayBackend, DisplayConfig, DllOverride, Game, GamescopeMode, OverrideMode,
-    Runner, RunnerKind, init_logging,
+    Platform, Runner, RunnerKind, init_logging,
 };
 pub use storage::ensure_app_dirs;

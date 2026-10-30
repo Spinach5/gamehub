@@ -19,7 +19,8 @@ pub struct LaunchTuning {
 #[derive(Debug, Clone)]
 pub struct LaunchRequest {
     pub game: Game,
-    pub runner: Runner,
+    /// `None` for native Linux games, which are launched directly.
+    pub runner: Option<Runner>,
     pub session: SessionType,
     pub global_env: BTreeMap<String, String>,
     pub inherited_env: BTreeMap<String, String>,
@@ -46,8 +47,6 @@ pub fn validate(request: &LaunchRequest) -> Result<(), LaunchError> {
         ));
     }
 
-    verify_runner(&request.runner)?;
-
     if let Some(working_dir) = request
         .game
         .working_dir
@@ -57,22 +56,34 @@ pub fn validate(request: &LaunchRequest) -> Result<(), LaunchError> {
         return Err(LaunchError::WorkingDirMissing(working_dir.clone()));
     }
 
-    let prefix_plan = plan_for_game(
-        &request.game,
-        request.runner.clone(),
-        &request.default_prefix_root,
-        request.steam_compat_client.clone(),
-    );
-    match status(&prefix_plan) {
-        PrefixStatus::Initialized => {}
-        PrefixStatus::ArchMismatch { existing } => {
-            return Err(LaunchError::PrefixArchMismatch {
-                expected: prefix_plan.arch,
-                existing,
-            });
+    if !request.game.platform.is_native() {
+        let runner = request
+            .runner
+            .as_ref()
+            .ok_or(LaunchError::NoRunnerSelected)?;
+        verify_runner(runner)?;
+
+        let prefix_plan = plan_for_game(
+            &request.game,
+            runner.clone(),
+            &request.default_prefix_root,
+            request.steam_compat_client.clone(),
+        );
+        match status(&prefix_plan) {
+            PrefixStatus::Initialized => {}
+            PrefixStatus::ArchMismatch { existing } => {
+                return Err(LaunchError::PrefixArchMismatch {
+                    expected: prefix_plan.arch,
+                    existing,
+                });
+            }
+            PrefixStatus::Missing | PrefixStatus::NotInitialized => {
+                return Err(LaunchError::PrefixNotInitialized(prefix_plan.path));
+            }
         }
-        PrefixStatus::Missing | PrefixStatus::NotInitialized => {
-            return Err(LaunchError::PrefixNotInitialized(prefix_plan.path));
+
+        for entry in &request.game.dll_overrides {
+            validate_dll_name(&entry.dll_name)?;
         }
     }
 
@@ -97,9 +108,6 @@ pub fn validate(request: &LaunchRequest) -> Result<(), LaunchError> {
     {
         validate_env_key(key)?;
     }
-    for entry in &request.game.dll_overrides {
-        validate_dll_name(&entry.dll_name)?;
-    }
 
     Ok(())
 }
@@ -107,21 +115,30 @@ pub fn validate(request: &LaunchRequest) -> Result<(), LaunchError> {
 pub fn build_plan(request: &LaunchRequest) -> Result<LaunchPlan, LaunchError> {
     validate(request)?;
 
-    let prefix_plan = plan_for_game(
-        &request.game,
-        request.runner.clone(),
-        &request.default_prefix_root,
-        request.steam_compat_client.clone(),
-    );
-    let context = WineContext {
-        runner: request.runner.clone(),
-        prefix: prefix_plan.path,
-        arch: prefix_plan.arch,
-        steam_compat_client: request.steam_compat_client.clone(),
+    let (mut program, mut args) = if request.game.platform.is_native() {
+        (
+            request.game.executable_path.clone(),
+            request.game.args.clone(),
+        )
+    } else {
+        let runner = request
+            .runner
+            .clone()
+            .ok_or(LaunchError::NoRunnerSelected)?;
+        let prefix_plan = plan_for_game(
+            &request.game,
+            runner.clone(),
+            &request.default_prefix_root,
+            request.steam_compat_client.clone(),
+        );
+        let context = WineContext {
+            runner,
+            prefix: prefix_plan.path,
+            arch: prefix_plan.arch,
+            steam_compat_client: request.steam_compat_client.clone(),
+        };
+        context.build_command(&request.game.executable_path, &request.game.args)
     };
-
-    let (mut program, mut args) =
-        context.build_command(&request.game.executable_path, &request.game.args);
 
     let gamescope_available = request.gamescope_path.is_some();
     if should_use_gamescope(&request.game.display, request.session, gamescope_available) {
@@ -175,7 +192,7 @@ pub fn build_plan(request: &LaunchRequest) -> Result<LaunchPlan, LaunchError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use launcher_core::{Arch, DisplayConfig, GamescopeMode, RunnerKind, RunnerSource};
+    use launcher_core::{Arch, DisplayConfig, GamescopeMode, Platform, RunnerKind, RunnerSource};
     use std::fs;
     use std::os::unix::fs::PermissionsExt;
     use std::path::Path;
@@ -207,6 +224,7 @@ mod tests {
                 runner_id: None,
                 prefix_path: Some(prefix),
                 cover_path: None,
+                platform: Platform::Windows,
                 arch: Arch::Win64,
                 display: DisplayConfig::default(),
                 env_overrides: BTreeMap::new(),
@@ -216,7 +234,7 @@ mod tests {
                 last_played_at: None,
                 playtime_seconds: 0,
             },
-            runner: Runner {
+            runner: Some(Runner {
                 id: uuid::Uuid::new_v4(),
                 kind: RunnerKind::Wine,
                 name: "Wine".into(),
@@ -226,7 +244,7 @@ mod tests {
                 source: RunnerSource::System,
                 verified: true,
                 version_string: None,
-            },
+            }),
             session: SessionType::X11,
             global_env: BTreeMap::new(),
             inherited_env: BTreeMap::new(),
@@ -254,7 +272,7 @@ mod tests {
     fn missing_runner_binary_is_rejected() {
         let dir = tempdir().unwrap();
         let request = request(&dir);
-        fs::remove_file(&request.runner.binary_path).unwrap();
+        fs::remove_file(&request.runner.as_ref().unwrap().binary_path).unwrap();
         assert!(matches!(
             validate(&request),
             Err(LaunchError::Runner(
@@ -337,9 +355,10 @@ mod tests {
     fn proton_game_uses_win64_prefix_even_for_win32_game() {
         let dir = tempdir().unwrap();
         let mut request = request(&dir);
-        request.runner.kind = RunnerKind::Proton;
-        request.runner.binary_path = dir.path().join("proton");
-        write_executable(&request.runner.binary_path, "#!/bin/sh\nexit 0\n");
+        let runner = request.runner.as_mut().unwrap();
+        runner.kind = RunnerKind::Proton;
+        runner.binary_path = dir.path().join("proton");
+        write_executable(&runner.binary_path, "#!/bin/sh\nexit 0\n");
         request.game.prefix_path = Some(dir.path().join("compat"));
         fs::create_dir_all(dir.path().join("compat/pfx")).unwrap();
         fs::write(dir.path().join("compat/pfx/system.reg"), "#arch=win64\n").unwrap();
@@ -352,7 +371,7 @@ mod tests {
     fn plan_without_gamescope_uses_runner_command() {
         let dir = tempdir().unwrap();
         let request = request(&dir);
-        let wine = request.runner.binary_path.clone();
+        let wine = request.runner.as_ref().unwrap().binary_path.clone();
         let exe = request.game.executable_path.clone();
         let working_dir = request.game.working_dir.clone();
 
@@ -388,7 +407,13 @@ mod tests {
         let separator = plan.args.iter().position(|arg| arg == "--").unwrap();
         assert_eq!(
             plan.args[separator + 1],
-            request.runner.binary_path.to_string_lossy().into_owned()
+            request
+                .runner
+                .as_ref()
+                .unwrap()
+                .binary_path
+                .to_string_lossy()
+                .into_owned()
         );
         assert_eq!(
             plan.args[separator + 2],
@@ -434,7 +459,13 @@ mod tests {
         assert_eq!(plan.args[0], "--dlsym");
         assert_eq!(
             plan.args[1],
-            request.runner.binary_path.to_string_lossy().into_owned()
+            request
+                .runner
+                .as_ref()
+                .unwrap()
+                .binary_path
+                .to_string_lossy()
+                .into_owned()
         );
         assert_eq!(
             plan.args[2],
@@ -468,7 +499,13 @@ mod tests {
         assert_eq!(plan.args[separator - 1], "--mangoapp");
         assert_eq!(
             plan.args[separator + 1],
-            request.runner.binary_path.to_string_lossy().into_owned()
+            request
+                .runner
+                .as_ref()
+                .unwrap()
+                .binary_path
+                .to_string_lossy()
+                .into_owned()
         );
     }
 
@@ -489,5 +526,74 @@ mod tests {
             build_plan(&request),
             Err(LaunchError::MangohudUnavailable)
         ));
+    }
+
+    fn native_request(dir: &tempfile::TempDir) -> LaunchRequest {
+        let mut request = request(dir);
+        let executable = dir.path().join("native-game");
+        write_executable(&executable, "#!/bin/sh\nexit 0\n");
+        request.game.platform = Platform::Linux;
+        request.game.executable_path = executable;
+        request.runner = None;
+        request
+    }
+
+    #[test]
+    fn windows_game_without_runner_is_rejected() {
+        let dir = tempdir().unwrap();
+        let mut request = request(&dir);
+        request.runner = None;
+        assert!(matches!(
+            validate(&request),
+            Err(LaunchError::NoRunnerSelected)
+        ));
+        assert!(matches!(
+            build_plan(&request),
+            Err(LaunchError::NoRunnerSelected)
+        ));
+    }
+
+    #[test]
+    fn native_plan_runs_executable_directly() {
+        let dir = tempdir().unwrap();
+        let request = native_request(&dir);
+
+        let plan = build_plan(&request).unwrap();
+        assert_eq!(plan.program, request.game.executable_path);
+        assert_eq!(plan.args, vec!["-skip".to_string()]);
+        assert_eq!(plan.cwd, request.game.working_dir);
+        assert!(!plan.env.contains_key("WINEPREFIX"));
+        assert!(!plan.env.contains_key("WINEARCH"));
+    }
+
+    #[test]
+    fn native_plan_ignores_prefix_state() {
+        let dir = tempdir().unwrap();
+        let mut request = native_request(&dir);
+        request.game.prefix_path = Some(dir.path().join("missing-prefix"));
+
+        validate(&request).unwrap();
+    }
+
+    #[test]
+    fn native_plan_supports_gamescope() {
+        let dir = tempdir().unwrap();
+        let mut request = native_request(&dir);
+        let gamescope = dir.path().join("gamescope");
+        write_executable(&gamescope, "#!/bin/sh\nexit 0\n");
+        request.gamescope_path = Some(gamescope.clone());
+        request.session = SessionType::Wayland;
+        request.game.display = DisplayConfig {
+            gamescope: GamescopeMode::Forced,
+            ..DisplayConfig::default()
+        };
+
+        let plan = build_plan(&request).unwrap();
+        assert_eq!(plan.program, gamescope);
+        let separator = plan.args.iter().position(|arg| arg == "--").unwrap();
+        assert_eq!(
+            plan.args[separator + 1],
+            request.game.executable_path.to_string_lossy().into_owned()
+        );
     }
 }

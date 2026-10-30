@@ -36,6 +36,16 @@ pub(crate) fn parse_arch(column: &'static str, value: &str) -> Result<Arch, Stor
     })
 }
 
+pub(crate) fn parse_platform(
+    column: &'static str,
+    value: &str,
+) -> Result<launcher_core::Platform, StorageError> {
+    launcher_core::Platform::parse(value).ok_or_else(|| StorageError::CorruptValue {
+        column,
+        value: value.to_owned(),
+    })
+}
+
 pub(crate) fn parse_runner_kind(
     column: &'static str,
     value: &str,
@@ -83,6 +93,7 @@ pub(crate) fn row_to_game(row: &Row<'_>) -> Result<launcher_core::Game, StorageE
     let last_played_at: Option<i64> = row.get(12)?;
     let cover_path: Option<String> = row.get(13)?;
     let playtime_seconds: i64 = row.get(14)?;
+    let platform: String = row.get(15)?;
 
     Ok(launcher_core::Game {
         id: parse_uuid("games.id", &id)?,
@@ -92,6 +103,7 @@ pub(crate) fn row_to_game(row: &Row<'_>) -> Result<launcher_core::Game, StorageE
         runner_id: opt_uuid_from_string("games.runner_id", runner_id)?,
         prefix_path: opt_path_from_string(prefix_path),
         cover_path: opt_path_from_string(cover_path),
+        platform: parse_platform("games.platform", &platform)?,
         arch: parse_arch("games.arch", &arch)?,
         display: serde_json::from_str::<DisplayConfig>(&display_json)?,
         env_overrides: serde_json::from_str(&env_overrides_json)?,

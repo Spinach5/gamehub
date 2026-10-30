@@ -49,6 +49,14 @@ impl App {
         .style(crate::styles::canvas);
 
         let mut layers = stack![base];
+        if self.new_game_platform.is_some() {
+            layers = layers.push(modal::platform_prompt(
+                self.lang,
+                Message::BeginNewGame(application::Platform::Windows),
+                Message::BeginNewGame(application::Platform::Linux),
+                Message::CancelNewGame,
+            ));
+        }
         if let Some(target) = &self.confirming {
             layers = layers.push(modal::confirm_delete(
                 self.lang,

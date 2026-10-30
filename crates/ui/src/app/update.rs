@@ -33,7 +33,16 @@ impl App {
             Message::NewGame => {
                 self.draft = None;
                 self.selected_game = None;
-                crate::dialogs::pick(crate::dialogs::DialogIntent::PickExe, self.lang)
+                self.new_game_platform = Some(application::Platform::Windows);
+                Task::none()
+            }
+            Message::BeginNewGame(platform) => {
+                self.new_game_platform = None;
+                crate::dialogs::pick(crate::dialogs::DialogIntent::PickExe(platform), self.lang)
+            }
+            Message::CancelNewGame => {
+                self.new_game_platform = None;
+                Task::none()
             }
             Message::Loaded(data) => self.apply_loaded(data),
             Message::LoadFailed(error) => {
@@ -48,6 +57,7 @@ impl App {
                         | DraftAction::Prefix(_)
                         | DraftAction::ClearPrefix
                         | DraftAction::Arch(_)
+                        | DraftAction::Platform(_)
                 );
                 let refresh_id = self.draft.as_ref().map(|draft| draft.id);
                 if let Some(draft) = &mut self.draft {
@@ -363,7 +373,11 @@ impl App {
                         return Task::none();
                     }
                 };
-                if self.running.values().any(|path| path == &plan.path)
+                if self
+                    .running
+                    .values()
+                    .flatten()
+                    .any(|path| path == &plan.path)
                     || self
                         .components
                         .values()
@@ -920,25 +934,35 @@ impl App {
                         return Task::none();
                     }
                 };
-                let prefix_plan = match self.prefix_plan_for(&game) {
-                    Ok(plan) => plan,
-                    Err(error) => {
-                        self.error = Some(error);
+                let (runner, prefix_path) = if game.platform.is_native() {
+                    (None, None)
+                } else {
+                    let prefix_plan = match self.prefix_plan_for(&game) {
+                        Ok(plan) => plan,
+                        Err(error) => {
+                            self.error = Some(error);
+                            return Task::none();
+                        }
+                    };
+                    if self
+                        .running
+                        .values()
+                        .flatten()
+                        .any(|path| path == &prefix_plan.path)
+                    {
+                        self.error = Some(ErrorNotice::new(self.tr("app.error.prefix_busy")));
                         return Task::none();
                     }
+                    if self
+                        .components
+                        .values()
+                        .any(|job| job.plan.path == prefix_plan.path)
+                    {
+                        self.error = Some(ErrorNotice::new(self.tr("app.error.component_running")));
+                        return Task::none();
+                    }
+                    (Some(prefix_plan.runner.clone()), Some(prefix_plan.path))
                 };
-                if self.running.values().any(|path| path == &prefix_plan.path) {
-                    self.error = Some(ErrorNotice::new(self.tr("app.error.prefix_busy")));
-                    return Task::none();
-                }
-                if self
-                    .components
-                    .values()
-                    .any(|job| job.plan.path == prefix_plan.path)
-                {
-                    self.error = Some(ErrorNotice::new(self.tr("app.error.component_running")));
-                    return Task::none();
-                }
 
                 let Some(service) = self.service.clone() else {
                     self.error = Some(ErrorNotice::new(self.tr("app.error.database_unavailable")));
@@ -957,7 +981,7 @@ impl App {
 
                 let request = LaunchRequest {
                     game,
-                    runner: prefix_plan.runner.clone(),
+                    runner,
                     session: self.session,
                     global_env,
                     inherited_env: Self::inherited_env(),
@@ -975,7 +999,7 @@ impl App {
                     dxvk_nvapi_source: self.settings.dxvk_nvapi_source.clone(),
                 };
 
-                self.running.insert(game_id, prefix_plan.path);
+                self.running.insert(game_id, prefix_path);
                 self.starting.insert(game_id);
                 launch_task(service, request, self.lang)
             }
@@ -1290,7 +1314,10 @@ mod tests {
     #[test]
     fn install_component_requires_a_saved_game() {
         let mut app = app();
-        let draft = application::editor::GameDraft::new(PathBuf::from("/tmp/gamehub/exe/game.exe"));
+        let draft = application::editor::GameDraft::new(
+            PathBuf::from("/tmp/gamehub/exe/game.exe"),
+            application::Platform::Windows,
+        );
         let game_id = draft.id;
         app.draft = Some(draft);
         app.winetricks_path = Some(PathBuf::from("/usr/bin/winetricks"));

@@ -7,7 +7,8 @@ use uuid::Uuid;
 
 const GAME_COLUMNS: &str = "id, name, executable_path, working_dir, runner_id, prefix_path, \
                             arch, display_json, env_overrides_json, dll_overrides_json, \
-                            args_json, created_at, last_played_at, cover_path, playtime_seconds";
+                            args_json, created_at, last_played_at, cover_path, playtime_seconds, \
+                            platform";
 
 impl Db {
     pub fn insert_game(&self, game: &Game) -> Result<(), StorageError> {
@@ -29,8 +30,8 @@ impl Db {
                 "INSERT INTO games (id, name, executable_path, working_dir, runner_id, prefix_path,
                                     arch, display_json, env_overrides_json, dll_overrides_json,
                                     args_json, created_at, last_played_at, cover_path,
-                                    playtime_seconds)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+                                    playtime_seconds, platform)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
                 params![
                     id,
                     game.name,
@@ -47,6 +48,7 @@ impl Db {
                     game.last_played_at,
                     cover_path,
                     game.playtime_seconds,
+                    game.platform.as_str(),
                 ],
             )
             .map_err(|error| map_game_insert_error(error, game.id))?;
@@ -73,7 +75,8 @@ impl Db {
             "UPDATE games SET name = ?2, executable_path = ?3, working_dir = ?4, runner_id = ?5,
                               prefix_path = ?6, arch = ?7, display_json = ?8,
                               env_overrides_json = ?9, dll_overrides_json = ?10, args_json = ?11,
-                              created_at = ?12, last_played_at = ?13, cover_path = ?14
+                              created_at = ?12, last_played_at = ?13, cover_path = ?14,
+                              platform = ?15
              WHERE id = ?1",
             params![
                 game.id.to_string(),
@@ -90,6 +93,7 @@ impl Db {
                 game.created_at,
                 game.last_played_at,
                 cover_path,
+                game.platform.as_str(),
             ],
         )?;
 

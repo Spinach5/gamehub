@@ -2,7 +2,7 @@ use application::{
     AppService, DeleteTarget, Game, LaunchEvent, LaunchRequest, LaunchTuning, Runner,
     SETTING_DEFAULT_RUNNER_ID, SETTING_GLOBAL_ENV, SETTING_PREFIX_ROOT,
 };
-use launcher_core::{Arch, DisplayConfig, RunnerKind, RunnerSource};
+use launcher_core::{Arch, DisplayConfig, Platform, RunnerKind, RunnerSource};
 use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -53,6 +53,7 @@ fn launch_fixture(kind: RunnerKind, body: &str) -> (tempfile::TempDir, Game, Lau
         runner_id: None,
         prefix_path: Some(prefix),
         cover_path: None,
+        platform: Platform::Windows,
         arch: Arch::Win64,
         display: DisplayConfig::default(),
         env_overrides: BTreeMap::new(),
@@ -75,7 +76,7 @@ fn launch_fixture(kind: RunnerKind, body: &str) -> (tempfile::TempDir, Game, Lau
     };
     let request = LaunchRequest {
         game: game.clone(),
-        runner,
+        runner: Some(runner),
         session: application::SessionType::X11,
         global_env: BTreeMap::new(),
         inherited_env: BTreeMap::new(),
@@ -114,6 +115,7 @@ fn game(path: PathBuf) -> Game {
         runner_id: None,
         prefix_path: None,
         cover_path: None,
+        platform: Platform::Windows,
         arch: Arch::Win64,
         display: DisplayConfig::default(),
         env_overrides: BTreeMap::new(),
@@ -323,7 +325,7 @@ async fn deleting_running_prefix_is_rejected() {
                 game_id: value.id,
                 path: prefix.clone(),
             },
-            HashMap::from([(value.id, prefix.clone())]),
+            HashMap::from([(value.id, Some(prefix.clone()))]),
             None,
             dir.path().join("logs"),
         )
@@ -438,7 +440,7 @@ async fn deleting_game_removes_row_and_rejects_running() {
         .unwrap();
 
     let mut running = HashMap::new();
-    running.insert(value.id, PathBuf::from("/tmp/prefix"));
+    running.insert(value.id, Some(PathBuf::from("/tmp/prefix")));
     assert!(
         service
             .clone()
@@ -492,6 +494,7 @@ async fn launch_records_last_played_and_playtime() {
         runner_id: None,
         prefix_path: Some(prefix),
         cover_path: None,
+        platform: Platform::Windows,
         arch: Arch::Win64,
         display: DisplayConfig::default(),
         env_overrides: BTreeMap::new(),
@@ -514,7 +517,7 @@ async fn launch_records_last_played_and_playtime() {
     };
     let request = LaunchRequest {
         game: game.clone(),
-        runner,
+        runner: Some(runner),
         session: SessionType::X11,
         global_env: BTreeMap::new(),
         inherited_env: BTreeMap::new(),
@@ -541,6 +544,99 @@ async fn launch_records_last_played_and_playtime() {
     let stored = service.load_initial().await.unwrap().games;
     assert!(stored[0].last_played_at.is_some());
     assert_eq!(stored[0].playtime_seconds, outcome.session_seconds);
+}
+
+fn native_launch_fixture(body: &str) -> (tempfile::TempDir, Game, LaunchRequest) {
+    let dir = tempdir().unwrap();
+    let exe = dir.path().join("game");
+    write_executable(&exe, body);
+
+    let game = Game {
+        id: Uuid::new_v4(),
+        name: "Native".into(),
+        executable_path: exe,
+        working_dir: Some(dir.path().to_path_buf()),
+        runner_id: None,
+        prefix_path: None,
+        cover_path: None,
+        platform: Platform::Linux,
+        arch: Arch::Win64,
+        display: DisplayConfig::default(),
+        env_overrides: BTreeMap::new(),
+        dll_overrides: Vec::new(),
+        args: Vec::new(),
+        created_at: 1,
+        last_played_at: None,
+        playtime_seconds: 0,
+    };
+    let request = LaunchRequest {
+        game: game.clone(),
+        runner: None,
+        session: application::SessionType::X11,
+        global_env: BTreeMap::new(),
+        inherited_env: BTreeMap::new(),
+        steam_compat_client: dir.path().join("steam-client"),
+        default_prefix_root: dir.path().join("prefixes"),
+        gamescope_path: None,
+        tuning: LaunchTuning::default(),
+        log_path: None,
+        dxvk_nvapi_source: None,
+    };
+    (dir, game, request)
+}
+
+#[tokio::test]
+async fn native_game_runs_without_runner_or_prefix() {
+    let _guard = EXEC_LOCK.lock().await;
+    let (dir, game, request) =
+        native_launch_fixture("#!/bin/sh\nprintf '%s' \"$WINEPREFIX\" > wineprefix.txt\nexit 0\n");
+    let service = AppService::open_in_memory().unwrap();
+    service
+        .clone()
+        .save_game(game.clone(), true, None, PathBuf::new())
+        .await
+        .unwrap();
+
+    let outcome = service.clone().launch_game(request).await.unwrap();
+    assert!(outcome.success);
+    assert_eq!(
+        fs::read_to_string(dir.path().join("wineprefix.txt")).unwrap(),
+        ""
+    );
+    assert!(
+        service.load_initial().await.unwrap().games[0]
+            .last_played_at
+            .is_some()
+    );
+}
+
+#[tokio::test]
+async fn stopping_a_native_game_terminates_its_process_group() {
+    let _guard = EXEC_LOCK.lock().await;
+    let (_dir, game, request) = native_launch_fixture("#!/bin/sh\nsleep 30\n");
+    let service = AppService::open_in_memory().unwrap();
+    service
+        .clone()
+        .save_game(game.clone(), true, None, PathBuf::new())
+        .await
+        .unwrap();
+
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    let launch = tokio::spawn(service.clone().launch_game_with_events(request, tx));
+
+    let started = loop {
+        match rx.recv().await {
+            Some(LaunchEvent::Started { game_id, .. }) if game_id == game.id => break true,
+            Some(_) => {}
+            None => break false,
+        }
+    };
+    assert!(started, "launch never reported Started");
+
+    service.clone().stop_game(game.id).await.unwrap();
+    let outcome = launch.await.unwrap().unwrap();
+    assert!(outcome.stopped);
+    assert!(!outcome.success);
 }
 
 #[tokio::test]

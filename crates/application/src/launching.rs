@@ -63,28 +63,33 @@ impl AppService {
             return Err(AppError::GameAlreadyRunning);
         }
 
-        let prefix_plan = ::prefix::plan_for_game(
-            &request.game,
-            request.runner.clone(),
-            &request.default_prefix_root,
-            request.steam_compat_client.clone(),
-        );
+        let wine_prefix = match request.runner.as_ref() {
+            Some(runner) => {
+                let prefix_plan = ::prefix::plan_for_game(
+                    &request.game,
+                    runner.clone(),
+                    &request.default_prefix_root,
+                    request.steam_compat_client.clone(),
+                );
 
-        if request.tuning.enable_dxvk_nvapi && request.runner.kind == RunnerKind::Wine {
-            let source = request
-                .dxvk_nvapi_source
-                .as_ref()
-                .ok_or(AppError::DxvkNvapiSourceMissing)?;
-            ::prefix::install_dxvk_nvapi(
-                &prefix_plan,
-                &::prefix::DxvkNvapiSource {
-                    root: source.clone(),
-                },
-            )
-            .await?;
-        }
+                if request.tuning.enable_dxvk_nvapi && runner.kind == RunnerKind::Wine {
+                    let source = request
+                        .dxvk_nvapi_source
+                        .as_ref()
+                        .ok_or(AppError::DxvkNvapiSourceMissing)?;
+                    ::prefix::install_dxvk_nvapi(
+                        &prefix_plan,
+                        &::prefix::DxvkNvapiSource {
+                            root: source.clone(),
+                        },
+                    )
+                    .await?;
+                }
 
-        let wine_prefix = ::prefix::windows_root(&prefix_plan.path, request.runner.kind);
+                Some(::prefix::windows_root(&prefix_plan.path, runner.kind))
+            }
+            None => None,
+        };
 
         let plan_request = request.clone();
         let plan =
@@ -175,7 +180,7 @@ impl AppService {
         let wait_result = child.wait().await;
         restore_primary(primary_to_restore, request.session).await;
         if let Some(process_group) = process_group {
-            wait_for_session_end(process_group, &wine_prefix).await;
+            wait_for_session_end(process_group, wine_prefix.as_deref()).await;
         }
         self.unregister_process(game_id);
         let stopped = self.take_stop_requested(game_id);
@@ -207,10 +212,14 @@ impl AppService {
         self.mark_stop_requested(game_id);
 
         // Wine spawns game processes from wineserver, which detaches them from
-        // the launcher's process group; stop the whole prefix first.
-        let prefix_result = runner_wine::kill_wine_prefix(&running.runner, &running.wine_prefix)
-            .await
-            .map_err(AppError::Runner);
+        // the launcher's process group; stop the whole prefix first. Native
+        // games only own their process group.
+        let prefix_result = match running.runner.as_ref().zip(running.wine_prefix.as_ref()) {
+            Some((runner, wine_prefix)) => runner_wine::kill_wine_prefix(runner, wine_prefix)
+                .await
+                .map_err(AppError::Runner),
+            None => Ok(()),
+        };
         let group_result = ::launch::terminate_process_group(running.process_group)
             .await
             .map_err(AppError::Stop);
@@ -244,15 +253,19 @@ fn unix_now() -> i64 {
 /// game processes from wineserver, and launchers such as `proton run` may
 /// return before the game does. Keep the session open until both our process
 /// group and the prefix are empty, so the UI does not report a live game as
-/// idle and the stop button keeps working.
-async fn wait_for_session_end(process_group: u32, wine_prefix: &Path) {
+/// idle and the stop button keeps working. Native games have no prefix and are
+/// tracked through their process group alone.
+async fn wait_for_session_end(process_group: u32, wine_prefix: Option<&Path>) {
     let mut announced = false;
+    let wine_prefix = wine_prefix.map(Path::to_path_buf);
 
     loop {
-        let prefix = wine_prefix.to_path_buf();
+        let prefix = wine_prefix.clone();
         let alive = tokio::task::spawn_blocking(move || {
             ::launch::process_group_alive(process_group)
-                || runner_wine::prefix_has_processes(&prefix)
+                || prefix
+                    .as_deref()
+                    .is_some_and(runner_wine::prefix_has_processes)
         })
         .await
         .unwrap_or(false);
@@ -264,7 +277,7 @@ async fn wait_for_session_end(process_group: u32, wine_prefix: &Path) {
             announced = true;
             tracing::debug!(
                 process_group,
-                prefix = %wine_prefix.display(),
+                prefix = ?wine_prefix.as_deref().map(|path| path.display().to_string()),
                 "launcher wrapper exited while the game is still running"
             );
         }
@@ -295,12 +308,23 @@ mod tests {
     #[tokio::test]
     async fn session_ends_immediately_when_nothing_is_left() {
         let dir = tempfile::tempdir().unwrap();
+        let wine_prefix = dir.path().join("pfx");
         tokio::time::timeout(
             Duration::from_secs(2),
-            wait_for_session_end(DEAD_GROUP, &dir.path().join("pfx")),
+            wait_for_session_end(DEAD_GROUP, Some(&wine_prefix)),
         )
         .await
         .expect("an idle prefix ends the session right away");
+    }
+
+    #[tokio::test]
+    async fn native_session_ends_without_a_prefix() {
+        tokio::time::timeout(
+            Duration::from_secs(2),
+            wait_for_session_end(DEAD_GROUP, None),
+        )
+        .await
+        .expect("a native session with no live process ends right away");
     }
 
     #[tokio::test]
@@ -323,7 +347,7 @@ mod tests {
 
         let mut waiter = tokio::spawn({
             let wine_prefix = wine_prefix.clone();
-            async move { wait_for_session_end(DEAD_GROUP, &wine_prefix).await }
+            async move { wait_for_session_end(DEAD_GROUP, Some(&wine_prefix)).await }
         });
         assert!(
             tokio::time::timeout(Duration::from_millis(700), &mut waiter)

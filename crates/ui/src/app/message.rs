@@ -1,5 +1,6 @@
 use super::{DeleteTarget, PrefixStatus, Screen};
 use crate::theme::ThemeMode;
+use application::Platform;
 use application::editor::{DraftAction, EnvAction};
 use application::{Game, LaunchEvent, LoadedData, Runner};
 use std::path::PathBuf;
@@ -10,6 +11,8 @@ pub enum Message {
     Navigate(Screen),
     SelectGame(uuid::Uuid),
     NewGame,
+    BeginNewGame(Platform),
+    CancelNewGame,
     Loaded(LoadedData),
     LoadFailed(String),
     Draft(DraftAction),

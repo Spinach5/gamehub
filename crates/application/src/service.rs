@@ -9,8 +9,9 @@ use uuid::Uuid;
 #[derive(Clone)]
 pub(crate) struct RunningGame {
     pub process_group: u32,
-    pub runner: Runner,
-    pub wine_prefix: PathBuf,
+    /// `None` for native games, which run without a compatibility layer.
+    pub runner: Option<Runner>,
+    pub wine_prefix: Option<PathBuf>,
 }
 
 /// Cheap-to-clone handle over the SQLite connection, owned by the application
@@ -47,8 +48,8 @@ impl AppService {
         &self,
         game_id: Uuid,
         process_group: u32,
-        runner: Runner,
-        wine_prefix: PathBuf,
+        runner: Option<Runner>,
+        wine_prefix: Option<PathBuf>,
     ) -> bool {
         self.lock_running_games()
             .insert(

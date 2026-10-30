@@ -28,15 +28,26 @@ pub fn view(app: &App) -> Element<'_, Message> {
 
     let launch_state = app.launch_state_label(draft.id);
     let subtitle = if draft.is_new {
-        app.tr("detail.subtitle.unsaved").to_owned()
+        if draft.platform.is_native() {
+            app.tr("detail.subtitle.unsaved_native").to_owned()
+        } else {
+            app.tr("detail.subtitle.unsaved").to_owned()
+        }
     } else {
         let time = crate::widgets::format_timestamp(app.lang, draft.last_played_at);
         let env = draft.env_rows.len().to_string();
-        let dll = draft.dll_rows.len().to_string();
-        app.tr_args(
-            "detail.subtitle.saved",
-            &[("time", &time), ("env", &env), ("dll", &dll)],
-        )
+        if draft.platform.is_native() {
+            app.tr_args(
+                "detail.subtitle.saved_native",
+                &[("time", &time), ("env", &env)],
+            )
+        } else {
+            let dll = draft.dll_rows.len().to_string();
+            app.tr_args(
+                "detail.subtitle.saved",
+                &[("time", &time), ("env", &env), ("dll", &dll)],
+            )
+        }
     };
     let header = row![
         controls::secondary(app.tr("common.back")).on_press(Message::Navigate(Screen::Library)),
@@ -69,16 +80,19 @@ pub fn view(app: &App) -> Element<'_, Message> {
     .width(Length::Fill)
     .align_y(iced::Alignment::Center);
 
-    let left = column![
-        basic_card(app, draft),
-        runner_card(app, draft),
-        display_card(app, draft),
-        env_card(app, draft),
-        dll_card(app, draft),
-        args_card(app, draft),
-    ]
-    .spacing(16)
-    .width(Length::Fill);
+    let mut left = column![basic_card(app, draft)]
+        .spacing(16)
+        .width(Length::Fill);
+    if !draft.platform.is_native() {
+        left = left.push(runner_card(app, draft));
+    }
+    left = left
+        .push(display_card(app, draft))
+        .push(env_card(app, draft));
+    if !draft.platform.is_native() {
+        left = left.push(dll_card(app, draft));
+    }
+    left = left.push(args_card(app, draft));
 
     let body = row![
         container(
@@ -102,7 +116,17 @@ pub fn view(app: &App) -> Element<'_, Message> {
 }
 
 fn basic_card<'a>(app: &'a App, draft: &'a GameDraft) -> Element<'a, Message> {
-    let content = column![
+    let platform_pick = pick_list(
+        crate::widgets::platform_choices(app.lang),
+        Some(crate::widgets::platform_choice(app.lang, draft.platform)),
+        |choice| Message::Draft(DraftAction::Platform(choice.value)),
+    )
+    .style(styles::pick_list)
+    .menu_style(styles::menu)
+    .font(font(Weight::Normal));
+
+    let mut content = column![
+        layout::field(app.tr("detail.platform"), platform_pick),
         layout::field(
             app.tr("detail.name"),
             text_input(app.tr("detail.name.placeholder"), draft.name.as_str())
@@ -118,7 +142,7 @@ fn basic_card<'a>(app: &'a App, draft: &'a GameDraft) -> Element<'a, Message> {
                     .size(11)
                     .width(Length::Fill),
                 controls::secondary_small(app.tr("common.choose"))
-                    .on_press(Message::Pick(DialogIntent::PickExe)),
+                    .on_press(Message::Pick(DialogIntent::PickExe(draft.platform))),
             ]
             .spacing(8)
             .align_y(iced::Alignment::Center)
@@ -143,7 +167,12 @@ fn basic_card<'a>(app: &'a App, draft: &'a GameDraft) -> Element<'a, Message> {
             .align_y(iced::Alignment::Center)
             .width(Length::Fill)
         ),
-        layout::field(
+    ]
+    .spacing(10)
+    .width(Length::Fill);
+
+    if !draft.platform.is_native() {
+        content = content.push(layout::field(
             app.tr("detail.arch"),
             pick_list(
                 crate::widgets::arch_choices(app.lang),
@@ -152,11 +181,9 @@ fn basic_card<'a>(app: &'a App, draft: &'a GameDraft) -> Element<'a, Message> {
             )
             .style(styles::pick_list)
             .menu_style(styles::menu)
-            .font(font(Weight::Normal))
-        ),
-    ]
-    .spacing(10)
-    .width(Length::Fill);
+            .font(font(Weight::Normal)),
+        ));
+    }
 
     layout::section_card(app.tr("detail.section.basic"), None, content)
 }
@@ -644,7 +671,9 @@ fn env_card<'a>(app: &'a App, draft: &'a GameDraft) -> Element<'a, Message> {
         controls::secondary_small(app.tr("detail.add_env"))
             .on_press(Message::Draft(DraftAction::Env(EnvAction::Add))),
     );
-    rows = rows.push(layout::faint(app.tr("detail.env.override_hint")).size(11));
+    if !draft.platform.is_native() {
+        rows = rows.push(layout::faint(app.tr("detail.env.override_hint")).size(11));
+    }
 
     layout::section_card(app.tr("detail.section.env"), None, rows)
 }
@@ -762,20 +791,39 @@ fn summary_card<'a>(app: &'a App, draft: &'a GameDraft) -> Element<'a, Message> 
     } else {
         app.tr("common.none")
     };
-    let facts = column![
-        fact("Prefix", prefix_status_label(status, app.lang).to_owned()),
-        fact(app.tr("detail.fact.dxvk_source"), dxvk_source.to_owned()),
-        fact(
+    let platform_label = crate::widgets::platform_choice(app.lang, draft.platform).label;
+    let mut facts = column![].spacing(6).width(Length::Fill);
+    if draft.platform.is_native() {
+        facts = facts.push(fact(app.tr("detail.platform"), platform_label.clone()));
+    } else {
+        facts = facts.push(fact(
+            "Prefix",
+            prefix_status_label(status, app.lang).to_owned(),
+        ));
+        facts = facts.push(fact(
+            app.tr("detail.fact.dxvk_source"),
+            dxvk_source.to_owned(),
+        ));
+    }
+    facts = facts
+        .push(fact(
             app.tr("detail.fact.recently_played"),
             crate::widgets::format_timestamp(app.lang, draft.last_played_at),
-        ),
-        fact(
+        ))
+        .push(fact(
             app.tr("detail.fact.playtime"),
             crate::widgets::format_playtime(app.lang, draft.playtime_seconds),
-        ),
-    ]
-    .spacing(6)
-    .width(Length::Fill);
+        ));
+
+    let compat_line = if draft.platform.is_native() {
+        platform_label
+    } else {
+        format!(
+            "{} · {}",
+            runner,
+            crate::widgets::arch_choice(app.lang, draft.arch).label
+        )
+    };
 
     let mut details = column![
         cover(draft.name.as_str(), draft.id, handle, 148.0, 197.0),
@@ -789,14 +837,7 @@ fn summary_card<'a>(app: &'a App, draft: &'a GameDraft) -> Element<'a, Message> 
         details = details.push(badges::badge(label, launch_tone(app, draft.id)));
     }
     details = details
-        .push(
-            layout::muted(format!(
-                "{} · {}",
-                runner,
-                crate::widgets::arch_choice(app.lang, draft.arch).label
-            ))
-            .size(11),
-        )
+        .push(layout::muted(compat_line).size(11))
         .push(launch);
     if draft.is_new {
         details = details.push(layout::faint(app.tr("detail.save_first")).size(11));

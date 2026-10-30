@@ -1,7 +1,7 @@
 //! Game editor draft state and validation, independent of any GUI toolkit.
 
 use crate::{validate_dll_name, validate_env_key};
-use launcher_core::{Arch, DisplayConfig, DllOverride, Game, OverrideMode};
+use launcher_core::{Arch, DisplayConfig, DllOverride, Game, OverrideMode, Platform};
 use std::collections::{BTreeMap, HashSet};
 use std::path::PathBuf;
 use uuid::Uuid;
@@ -29,6 +29,7 @@ pub struct GameDraft {
     pub prefix_path: Option<PathBuf>,
     pub cover_path: Option<PathBuf>,
     pub cover_source: Option<PathBuf>,
+    pub platform: Platform,
     pub arch: Arch,
     pub display: DisplayConfig,
     pub resolution_width: String,
@@ -47,6 +48,7 @@ pub enum DraftAction {
     Name(String),
     WorkingDir(Option<PathBuf>),
     ClearWorkingDir,
+    Platform(Platform),
     Arch(Arch),
     Runner(Option<Uuid>),
     Prefix(Option<PathBuf>),
@@ -332,7 +334,7 @@ fn dll_rows_to_overrides(rows: &[DllRow]) -> Result<Vec<DllOverride>, DraftError
 impl GameDraft {
     /// Seeds the name from the executable's file stem. The name is left empty
     /// when there is no stem, so the caller can supply a localized fallback.
-    pub fn new(executable_path: PathBuf) -> Self {
+    pub fn new(executable_path: PathBuf, platform: Platform) -> Self {
         let name = executable_path
             .file_stem()
             .and_then(|stem| stem.to_str())
@@ -350,6 +352,7 @@ impl GameDraft {
             prefix_path: None,
             cover_path: None,
             cover_source: None,
+            platform,
             arch: Arch::Win64,
             display: DisplayConfig::default(),
             resolution_width: String::new(),
@@ -381,6 +384,7 @@ impl GameDraft {
             prefix_path: game.prefix_path.clone(),
             cover_path: game.cover_path.clone(),
             cover_source: None,
+            platform: game.platform,
             arch: game.arch,
             display: game.display.clone(),
             resolution_width,
@@ -418,6 +422,7 @@ impl GameDraft {
             DraftAction::Name(value) => self.name = value,
             DraftAction::WorkingDir(value) => self.working_dir = value,
             DraftAction::ClearWorkingDir => self.working_dir = None,
+            DraftAction::Platform(value) => self.platform = value,
             DraftAction::Arch(value) => self.arch = value,
             DraftAction::Runner(value) => self.runner_id = value,
             DraftAction::Prefix(value) => self.prefix_path = value,
@@ -461,12 +466,14 @@ impl GameDraft {
                 ));
             }
         }
-        if let Some(prefix_path) = &self.prefix_path {
-            if prefix_path.as_os_str().is_empty() || !prefix_path.is_absolute() {
-                return Err(DraftError::new(
-                    DraftField::Prefix,
-                    DraftErrorKind::PrefixNotAbsolute,
-                ));
+        if !self.platform.is_native() {
+            if let Some(prefix_path) = &self.prefix_path {
+                if prefix_path.as_os_str().is_empty() || !prefix_path.is_absolute() {
+                    return Err(DraftError::new(
+                        DraftField::Prefix,
+                        DraftErrorKind::PrefixNotAbsolute,
+                    ));
+                }
             }
         }
 
@@ -494,6 +501,7 @@ impl GameDraft {
             runner_id: self.runner_id,
             prefix_path: self.prefix_path.clone(),
             cover_path: self.cover_path.clone(),
+            platform: self.platform,
             arch: self.arch,
             display,
             env_overrides,
@@ -525,6 +533,7 @@ mod tests {
             prefix_path: None,
             cover_path: None,
             cover_source: None,
+            platform: Platform::Windows,
             arch: Arch::Win64,
             display: DisplayConfig::default(),
             resolution_width: String::new(),
@@ -541,13 +550,59 @@ mod tests {
 
     #[test]
     fn new_draft_uses_file_stem_as_name() {
-        let draft = GameDraft::new(PathBuf::from("/games/Cyberpunk 2077.exe"));
+        let draft = GameDraft::new(
+            PathBuf::from("/games/Cyberpunk 2077.exe"),
+            Platform::Windows,
+        );
         assert_eq!(draft.name, "Cyberpunk 2077");
         assert!(draft.is_new);
+        assert_eq!(draft.platform, Platform::Windows);
         assert_eq!(
             draft.executable_path,
             Some(PathBuf::from("/games/Cyberpunk 2077.exe"))
         );
+    }
+
+    #[test]
+    fn new_draft_keeps_the_selected_platform() {
+        let draft = GameDraft::new(PathBuf::from("/games/hollow_knight"), Platform::Linux);
+        assert_eq!(draft.platform, Platform::Linux);
+        assert_eq!(draft.to_game().unwrap().platform, Platform::Linux);
+    }
+
+    #[test]
+    fn native_draft_skips_prefix_validation() {
+        let mut draft = draft();
+        draft.platform = Platform::Linux;
+        draft.prefix_path = Some(PathBuf::from("relative-prefix"));
+        assert!(draft.to_game().is_ok());
+
+        draft.platform = Platform::Windows;
+        assert!(draft.to_game().is_err());
+    }
+
+    #[test]
+    fn switching_platform_preserves_wine_settings() {
+        let mut draft = draft();
+        draft.runner_id = Some(Uuid::new_v4());
+        draft.prefix_path = Some(PathBuf::from("/data/prefixes/game"));
+        draft.dll_rows = vec![DllRow {
+            name: "d3d11".into(),
+            mode: OverrideMode::NativeBuiltin,
+        }];
+
+        draft.apply(DraftAction::Platform(Platform::Linux));
+        assert!(draft.runner_id.is_some());
+        assert_eq!(
+            draft.prefix_path,
+            Some(PathBuf::from("/data/prefixes/game"))
+        );
+        assert_eq!(draft.dll_rows.len(), 1);
+
+        draft.apply(DraftAction::Platform(Platform::Windows));
+        let game = draft.to_game().unwrap();
+        assert_eq!(game.platform, Platform::Windows);
+        assert_eq!(game.dll_overrides.len(), 1);
     }
 
     #[test]

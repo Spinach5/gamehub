@@ -27,7 +27,7 @@ pub fn resolve_runner(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use launcher_core::{Arch, RunnerKind, RunnerSource};
+    use launcher_core::{Arch, Platform, RunnerKind, RunnerSource};
     use std::path::PathBuf;
     use uuid::Uuid;
 
@@ -54,6 +54,7 @@ mod tests {
             runner_id,
             prefix_path: None,
             cover_path: None,
+            platform: Platform::Windows,
             arch: Arch::Win64,
             display: Default::default(),
             env_overrides: Default::default(),

@@ -50,7 +50,8 @@ pub fn ensure_app_dirs(paths: &AppPaths) -> Result<(), StorageError> {
 mod tests {
     use super::*;
     use launcher_core::{
-        Arch, DisplayConfig, DllOverride, GamescopeMode, OverrideMode, RunnerKind, RunnerSource,
+        Arch, DisplayConfig, DllOverride, GamescopeMode, OverrideMode, Platform, RunnerKind,
+        RunnerSource,
     };
     use rusqlite::params;
     use std::collections::BTreeMap;
@@ -67,6 +68,7 @@ mod tests {
             runner_id: Some(Uuid::new_v4()),
             prefix_path: Some(PathBuf::from("/data/prefixes/test")),
             cover_path: Some(PathBuf::from("/data/covers/sample.png")),
+            platform: Platform::Windows,
             arch: Arch::Win64,
             display: DisplayConfig {
                 gamescope: GamescopeMode::Forced,
@@ -282,13 +284,13 @@ mod tests {
     }
 
     #[test]
-    fn in_memory_database_has_v3_schema() {
+    fn in_memory_database_has_v4_schema() {
         let db = Db::open_in_memory().unwrap();
         let version: i64 = db
             .conn
             .query_row("SELECT version FROM schema_version", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(version, 3);
+        assert_eq!(version, 4);
 
         let tables: i64 = db
             .conn
@@ -312,7 +314,7 @@ mod tests {
     }
 
     #[test]
-    fn migrates_v1_database_to_v3() {
+    fn migrates_v1_database_to_v4() {
         let dir = tempdir().unwrap();
         let path = dir.path().join("gamehub.db");
         {
@@ -340,7 +342,7 @@ mod tests {
             .conn
             .query_row("SELECT version FROM schema_version", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(version, 3);
+        assert_eq!(version, 4);
 
         let mut game = db
             .get_game(Uuid::parse_str("11111111-1111-1111-1111-111111111111").unwrap())
@@ -349,6 +351,7 @@ mod tests {
         assert_eq!(game.name, "Old");
         assert_eq!(game.cover_path, None);
         assert_eq!(game.playtime_seconds, 0);
+        assert_eq!(game.platform, launcher_core::Platform::Windows);
 
         game.cover_path = Some(PathBuf::from("/data/covers/old.png"));
         db.update_game(&game).unwrap();
@@ -359,7 +362,7 @@ mod tests {
     }
 
     #[test]
-    fn migrates_v2_database_to_v3() {
+    fn migrates_v2_database_to_v4() {
         let dir = tempdir().unwrap();
         let path = dir.path().join("gamehub.db");
         {
@@ -395,6 +398,48 @@ mod tests {
             Some(PathBuf::from("/data/covers/kept.png"))
         );
         assert_eq!(game.playtime_seconds, 0);
+        assert_eq!(game.platform, launcher_core::Platform::Windows);
+    }
+
+    #[test]
+    fn migrates_v3_database_to_v4() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("gamehub.db");
+        {
+            let conn = rusqlite::Connection::open(&path).unwrap();
+            conn.execute_batch("CREATE TABLE schema_version (version INTEGER NOT NULL);")
+                .unwrap();
+            conn.execute_batch(crate::schema::V3).unwrap();
+            conn.execute("INSERT INTO schema_version (version) VALUES (3)", [])
+                .unwrap();
+            conn.execute(
+                "INSERT INTO games (id, name, executable_path, working_dir, runner_id,
+                                    prefix_path, arch, display_json, env_overrides_json,
+                                    dll_overrides_json, args_json, created_at, last_played_at,
+                                    cover_path, playtime_seconds)
+                 VALUES ('33333333-3333-3333-3333-333333333333', 'Legacy', '/games/legacy.exe',
+                         NULL, NULL, NULL, 'win32',
+                         '{\"backend\":\"auto\",\"monitor\":null,\"resolution\":null,\"refresh_rate\":null,\"fullscreen\":true,\"gamescope\":\"auto\"}',
+                         '{}', '[]', '[]', 1700000000, NULL, NULL, 3600)",
+                [],
+            )
+            .unwrap();
+        }
+
+        let db = Db::open(&path).unwrap();
+        let version: i64 = db
+            .conn
+            .query_row("SELECT version FROM schema_version", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, 4);
+
+        let game = db
+            .get_game(Uuid::parse_str("33333333-3333-3333-3333-333333333333").unwrap())
+            .unwrap()
+            .unwrap();
+        assert_eq!(game.name, "Legacy");
+        assert_eq!(game.playtime_seconds, 3600);
+        assert_eq!(game.platform, launcher_core::Platform::Windows);
     }
 
     #[test]
@@ -404,15 +449,15 @@ mod tests {
         {
             let db = Db::open(&path).unwrap();
             db.conn
-                .execute("UPDATE schema_version SET version = 4", [])
+                .execute("UPDATE schema_version SET version = 5", [])
                 .unwrap();
         }
 
         let result = Db::open(&path);
         match result {
             Err(StorageError::UnsupportedSchema {
-                found: 4,
-                supported: 3,
+                found: 5,
+                supported: 4,
             }) => {}
             Err(other) => panic!("unexpected error: {other:?}"),
             Ok(_) => panic!("expected unsupported schema error"),
@@ -447,6 +492,27 @@ mod tests {
             db.get_game(game.id),
             Err(StorageError::CorruptValue {
                 column: "games.arch",
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn corrupt_platform_is_reported() {
+        let db = Db::open_in_memory().unwrap();
+        let game = sample_game("corrupt platform");
+        db.insert_game(&game).unwrap();
+        db.conn
+            .execute(
+                "UPDATE games SET platform = 'macos' WHERE id = ?1",
+                params![game.id.to_string()],
+            )
+            .unwrap();
+
+        assert!(matches!(
+            db.get_game(game.id),
+            Err(StorageError::CorruptValue {
+                column: "games.platform",
                 ..
             })
         ));

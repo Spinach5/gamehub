@@ -1,5 +1,5 @@
 use application::{AppError, AppService, DeleteTarget, Game};
-use launcher_core::{Arch, DisplayConfig};
+use launcher_core::{Arch, DisplayConfig, Platform};
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use tempfile::tempdir;
@@ -16,6 +16,7 @@ fn game(dir: &Path) -> Game {
         runner_id: None,
         prefix_path: None,
         cover_path: None,
+        platform: Platform::Windows,
         arch: Arch::Win64,
         display: DisplayConfig::default(),
         env_overrides: BTreeMap::new(),

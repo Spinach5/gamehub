@@ -27,6 +27,35 @@ impl Arch {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[serde(rename_all = "snake_case")]
+pub enum Platform {
+    #[default]
+    Windows,
+    Linux,
+}
+
+impl Platform {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Windows => "windows",
+            Self::Linux => "linux",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "windows" => Some(Self::Windows),
+            "linux" => Some(Self::Linux),
+            _ => None,
+        }
+    }
+
+    pub const fn is_native(self) -> bool {
+        matches!(self, Self::Linux)
+    }
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "snake_case")]
 pub enum RunnerKind {
@@ -134,6 +163,7 @@ pub struct Game {
     pub runner_id: Option<Uuid>,
     pub prefix_path: Option<PathBuf>,
     pub cover_path: Option<PathBuf>,
+    pub platform: Platform,
     pub arch: Arch,
     pub display: DisplayConfig,
     pub env_overrides: BTreeMap<String, String>,
@@ -170,6 +200,43 @@ mod tests {
         for arch in [Arch::Win32, Arch::Win64] {
             assert_eq!(serde_json::to_value(arch).unwrap(), json!(arch.as_str()));
         }
+    }
+
+    #[test]
+    fn platform_serializes_as_snake_case() {
+        assert_eq!(
+            serde_json::to_value(Platform::Windows).unwrap(),
+            json!("windows")
+        );
+        assert_eq!(
+            serde_json::to_value(Platform::Linux).unwrap(),
+            json!("linux")
+        );
+    }
+
+    #[test]
+    fn platform_parse_is_exact() {
+        assert_eq!(Platform::parse("windows"), Some(Platform::Windows));
+        assert_eq!(Platform::parse("linux"), Some(Platform::Linux));
+        assert_eq!(Platform::parse("Linux"), None);
+        assert_eq!(Platform::parse("native"), None);
+    }
+
+    #[test]
+    fn platform_as_str_matches_serde() {
+        for platform in [Platform::Windows, Platform::Linux] {
+            assert_eq!(
+                serde_json::to_value(platform).unwrap(),
+                json!(platform.as_str())
+            );
+        }
+    }
+
+    #[test]
+    fn platform_defaults_to_windows_and_reports_native() {
+        assert_eq!(Platform::default(), Platform::Windows);
+        assert!(Platform::Linux.is_native());
+        assert!(!Platform::Windows.is_native());
     }
 
     #[test]
@@ -283,6 +350,7 @@ mod tests {
             runner_id: Some(Uuid::new_v4()),
             prefix_path: None,
             cover_path: Some(PathBuf::from("/data/covers/abc.png")),
+            platform: Platform::Windows,
             arch: Arch::Win64,
             display: DisplayConfig::default(),
             env_overrides: BTreeMap::from([
@@ -339,6 +407,7 @@ mod tests {
             "runner_id",
             "prefix_path",
             "cover_path",
+            "platform",
             "arch",
             "display",
             "env_overrides",
