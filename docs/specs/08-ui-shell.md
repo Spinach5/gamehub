@@ -1,5 +1,8 @@
 # P7 UI 骨架 Implementation Plan
 
+> 历史实施计划（2026-10-27，P7）。Task U1–U6 的代码片段与验收记录保留原样；
+> 与当前代码不一致的契约、文件路径和流程以文末「当前实现（v0.8.0）」为准。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** 把 `ui` 从冒烟程序变成可用的应用骨架：启动加载、Library、基础 GameDetail、本地 exe 导入、草稿校验与保存、rfd 文件对话框、错误页。
@@ -13,6 +16,8 @@
 ---
 
 ## 最终状态与消息目录（09/10 会继续追加）
+
+> **当前实现提示（v0.8.0）：** 下面的 `App` 是 P7 时的最小状态，仅作为历史起点。现在的状态由 `AppService` 取代 `db` 字段，并新增运行态、平台、显示器、组件、日志、封面、主题/语言/字体等字段（完整列表见文末「当前实现」）。`Message`、`GameDraft`、`DraftAction` 的当前定义见 `crates/ui/src/app/message.rs` 与 `application::editor`。
 
 ```rust
 pub struct App {
@@ -1837,3 +1842,37 @@ git commit -m "chore(ui): finish UI shell phase"
   对话框失败路径确认。
 - 偏差：U1–U5 按可编译检查点合并提交；`sort_by_key`（clippy）；额外持久化
   测试；显式 CJK 默认字体。详见 CHANGELOG P7。
+
+## 当前实现（v0.8.0）
+
+### 模块结构
+
+```
+crates/ui/src/
+├── main.rs              # 调用 ui::run()
+├── lib.rs               # run()、窗口与默认字体
+├── app/{mod,message,update,view}.rs
+├── dialogs.rs           # rfd：exe/封面/DXVK/NVAPI/字体目录/Prefix
+├── fonts.rs             # fc-list 扫描（纯解析 + 阻塞调用）
+├── i18n/{mod,errors}.rs # 语言目录、探测、AppError/DraftError 渲染
+├── styles.rs            # 按钮/输入/下拉/滚动条样式
+├── theme.rs             # 颜色令牌、ThemeMode、字体族与字重
+├── widgets/{badges,choices,controls,cover,layout,modal,mod}.rs
+└── views/{library,game_detail,logs,runners,settings,mod}.rs
+```
+
+### App 状态（与 P7 的差异）
+
+- `service: Option<AppService>` 取代 `db`；持久化/探测/启动全部经 application。
+- 新增：`monitors`（取代 `x11_outputs`）、`mangohud_path`、`winetricks_path`、`starting`/`stopping`、`running: HashMap<Uuid, Option<PathBuf>>`（原生游戏 prefix 为 `None`）、`new_game_platform`、`dxvk_dir`、`components`、`installed_verbs`、`logs_game`/`logs_content`/`logs_error`、`cover_handles`、`window_width`、`lang`。
+- 设置状态包含主题、语言、字体与兼容层调优；`theme_saving`/`language_saving`/`font_saving` 分别去抖，错误用 `ErrorNotice` 区分来源。
+- 草稿：`GameDraft` 迁到 `application::editor`，新增 `platform`、`cover_path`、`playtime_seconds`；`DraftAction::Platform` 切换平台时会刷新 prefix 状态并保留 Wine 设置。
+- 新建流程：`NewGame` 先弹平台选择（`new_game_platform`），`BeginNewGame(platform)` 记录选择并打开按平台过滤的文件对话框；`CancelNewGame` 关闭弹窗。`DialogIntent::PickExe(Platform)` 携带平台，Windows 过滤 `.exe`，Linux 不过滤。
+
+### 视图与交互
+
+- 根布局：侧边栏 + 内容区；浅色/深色主题；游戏库为响应式封面卡片网格，含「正在游玩」卡、启动/停止、设置、日志。
+- 详情页：平台选择置于基本信息卡首位；原生游戏隐藏架构、Runner/Prefix/DXVK/winetricks/DLL override 卡片及摘要中的 Prefix/DXVK 事实，副标题与环境变量提示也使用原生文案。摘要卡列出平台与总时长。
+- 日志页：读取 `logs/games/<id>.log` 最近 1000 行；组件输出在详情页内联展示最近 400 行。
+- 弹窗：平台选择、删除确认、封面选择等使用 `widgets::modal`；模态层通过 `stack!` + `opaque` 叠加。
+- 字体：所有文本/按钮/输入/下拉/徽章走 `theme::font(weight)`；勾选符号使用内置字体；日志与 winetricks 输出保持等宽。

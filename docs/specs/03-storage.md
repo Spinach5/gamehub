@@ -14,6 +14,19 @@
 
 ## Task S1: 打开数据库、迁移与 schema
 
+> **当前实现提示（v0.8.0）：** 本节 Step 2 的 `SCHEMA_VERSION = 1` 与 `V1` 是 P2 历史快照。现在的 `schema.rs` 是 `SCHEMA_VERSION = 4`，新库直接建 `V4`，旧库按 `v1→v2→v3→v4` 依次迁移：
+
+| 版本 | 变更 | 迁移语句 |
+|---|---|---|
+| v2 | 封面 | `ALTER TABLE games ADD COLUMN cover_path TEXT;` |
+| v3 | 游玩时长 | `ALTER TABLE games ADD COLUMN playtime_seconds INTEGER NOT NULL DEFAULT 0;` |
+| v4 | 平台 | `ALTER TABLE games ADD COLUMN platform TEXT NOT NULL DEFAULT 'windows';` |
+
+- `V1`/`V2`/`V3` 保留为 `pub(crate)` 历史常量（仅迁移测试使用），迁移函数每次都在 `unchecked_transaction` 中执行并同步更新 `schema_version`。
+- `initialize` 的版本分派：`None` 建 V4；`1` 连续迁移三次；`2` 迁移两次；`3` 迁移一次；`4` 不动；大于 4 报 `UnsupportedSchema`（不再出现 `MigrationRequired` 的正常路径）。
+- `Game` 的列映射与 `GAME_COLUMNS` 已包含 `cover_path`、`playtime_seconds`、`platform`；`platform` 解析失败按 `CorruptValue` 处理。
+- 迁移测试：`migrates_v1_database_to_v4`、`migrates_v2_database_to_v4`、`migrates_v3_database_to_v4`、`newer_schema_is_rejected`（版本 5）。
+
 **Files:**
 - Create: `crates/storage/src/error.rs`
 - Create: `crates/storage/src/schema.rs`
@@ -1223,3 +1236,13 @@ git commit -m "chore(storage): finish storage phase verification"
   `cargo test -p storage` 18 passed。
 - 偏差：`row_to_runner`/`parse_runner_kind` 延后到 S3 加入，避免 S2 出现
   dead_code 警告；测试模块不重复导入 `rusqlite::params`。公开 API 与 spec 一致。
+
+## 当前实现（v0.8.0）
+
+- 版本与迁移以本文 S1 的「当前实现提示」为准：v4，新库直接建 V4，旧库逐级迁移。P2 验收中「首次打开自动建 v1；版本 2 报 UnsupportedSchema」仅描述 P2 当时状态。
+- `Game` 写入路径：
+  - `insert_game` 写入全部列，含 `cover_path`/`playtime_seconds`/`platform`。
+  - `update_game` 写可编辑字段（含 `platform`），刻意不写 `playtime_seconds`，避免保存草稿覆盖运行中的统计；时长只由 `add_playtime` 用 `MAX(playtime_seconds + ?2, 0)` 累加。
+  - `last_played_at` 由启动事件在开始时写入；UI 合并草稿时对 `last_played_at`/`playtime_seconds` 取 `max`。
+- 设置仍是 KV 表，值统一 TEXT；`SaveSettings` 以 `Option<String>` 表达删除键。
+- 引用计数与删除保护不变：`count_games_using_runner`、`count_games_using_prefix`、`delete_game`（只删行，不删封面/prefix）。

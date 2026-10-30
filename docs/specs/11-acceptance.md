@@ -1,5 +1,9 @@
 # 交付验收与手工测试 Implementation Plan
 
+> 历史验收计划与记录（P10，2026-10-27，验收对象 `bf0ecdd`）。Task A1–A10
+> 与勾选状态保留原样；v0.2.0–v0.8.0 及平台支持的增量验收见文末
+> 「当前增量验收」。
+
 > **For agentic workers:** 本文件不产出新功能，只定义交付门槛与证据记录方式。所有自动命令必须真实执行并保留输出；无法执行的项必须写明原因，不得标记为通过。
 
 **Goal:** 在断网 Linux（X11/Wayland）环境验证 v2 规格的全部交付项，并记录可复核的证据。
@@ -404,3 +408,36 @@ git commit -m "docs: record v2 acceptance evidence and limitations"
   - 高 DPI 未验证（缩放因子 1）。
   - rfd 在隔离环境回退 zenity（无 session bus）；正常桌面使用 portal。
 - 游戏删除只删 DB 行，不删除 Prefix 目录，符合 A3 Step 9 的“可另行删除”。
+
+---
+
+## 当前增量验收（2026-10-30）
+
+基线：`v0.8.0`（`df489d1`）；Linux 原生平台支持为当前工作树增量。
+
+### 自动检查（本次实跑）
+
+- `cargo fmt --all --check`：通过。
+- `cargo clippy --workspace --all-targets -- -D warnings`：通过。
+- `cargo test --workspace`：329 passed，0 failed，2 ignored
+  （真实 Wine prefix 测试仍为 ignored）。
+
+### v0.2.0–v0.8.0 增量功能
+
+| 版本 | 能力 | 验收方式 |
+|---|---|---|
+| v0.2.0 | 卡片启动/设置/日志、启动中/游玩状态、启动日志页、Esync/Fsync/MangoHud/DXVK-NVAPI 设置、`LaunchEvent` 事件流 | 应用层事件顺序测试；伪造可执行文件验证 MangoHud/NVAPI；XWayland 冒烟 |
+| v0.3.x | 结束游戏（进程组 + `wineserver -k`）、显示器自动扫描、Wayland primary 切换 | 进程组/prefix 集成测试；Mutter DisplayConfig 真实切换；HDMI-1/eDP-1 |
+| v0.4.x | 浅色/深色主题、卡片与详情页改版、自定义封面、schema v2 | 主题令牌与封面生命周期测试；像素级控件内部取色 |
+| v0.5.0 | 中英文 i18n、`ui_language` 设置、错误本地化 | 目录 key 一致性守卫；英文界面源码无中文字面量 |
+| v0.6.0 | 游玩时长、启动时写 `last_played_at`、会话保活、`GameDraft` 迁入 application、schema v3 | `add_playtime`/会话保活测试；真实 v2→v3 迁移 |
+| v0.7.0 | 系统 winetricks 组件安装、实时输出、取消、`winetricks.log` 读取 | 组件服务测试；真实 winetricks 20250102 安装 `fontsmooth-rgb` |
+| v0.8.0 | 已安装字体切换、字重吸附、`ui_font` 持久化 | 字体解析/切换/保存竞态测试；浅色/深色实机走查 |
+| 当前增量 | `Platform::{Windows,Linux}`、平台选择弹窗、原生启动分支、schema v4、停止原生进程 | 领域/存储/编辑器/启动计划/UI 测试；Linux 原生可执行文件启动 |
+
+### 当前限制
+
+- 真实 gamescope 仍未安装，gamescope 启动路径只做参数级测试。
+- 原生 Linux 游戏只验证了测试可执行文件，未覆盖真实商业游戏。
+- 平台支持增量尚未提交、未发布，版本号仍为 `0.8.0`。
+- 历史验收中的 X11/高 DPI 缺口仍然存在。

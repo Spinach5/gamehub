@@ -16,6 +16,7 @@
 
 ```rust
 pub enum Arch { Win32, Win64 }
+pub enum Platform { Windows, Linux }          // #[default] Windows；snake_case；is_native() == Linux
 pub enum RunnerKind { Wine, Proton }
 pub enum RunnerSource { System, Imported { original_path: PathBuf } }
 pub struct Runner {
@@ -48,17 +49,24 @@ pub struct Game {
     pub working_dir: Option<PathBuf>,
     pub runner_id: Option<Uuid>,
     pub prefix_path: Option<PathBuf>,
+    pub cover_path: Option<PathBuf>,          // v0.4.0 起
+    pub platform: Platform,                   // 未发版：Linux 原生支持
     pub arch: Arch,
     pub display: DisplayConfig,
     pub env_overrides: BTreeMap<String, String>,
     pub dll_overrides: Vec<DllOverride>,
     pub args: Vec<String>,
     pub created_at: i64,
-    pub last_played_at: Option<i64>,
+    pub last_played_at: Option<i64>,          // 本次启动时间（v0.6.0 起语义）
+    pub playtime_seconds: i64,                // v0.6.0 起
 }
 ```
 
 不要改字段名。可以增加 `PartialEq`/`Eq`/`Hash` 派生。
+
+`Platform` 的映射与 `Arch` 一致：serde 输出 `"windows"` / `"linux"`，`as_str()` 与 serde 一致，`parse()` 只接受小写；`Default` 为 `Windows`，因此 v3 及更早的数据库升级后全部视为 Windows。
+
+> 下文 Task C1–C4 的代码片段是 P1 实施时的历史记录，缺少 `Platform`、`cover_path`、`playtime_seconds`；以本契约与 `crates/launcher-core/src/types.rs` 为准。
 
 ---
 
@@ -604,3 +612,10 @@ git commit -m "test(launcher-core): lock serialization contracts"
 ## 实施记录
 
 - 2026-10-26 完成。20 个单元测试 + 2 个集成测试通过；无偏差。
+
+## 当前实现（v0.8.0）
+
+- `types.rs` 仍只有领域类型，没有 IO；新增 `Platform` 与上述三个 `Game` 字段。
+- 契约测试 `game_json_uses_fixed_field_names` 的 key 列表已包含 `cover_path`、`platform`、`playtime_seconds`；另有 `platform_serializes_as_snake_case`、`platform_parse_is_exact`、`platform_as_str_matches_serde`、`platform_defaults_to_windows_and_reports_native`、`game_round_trips_with_cover_path`。
+- `Runner` 未变；runner 的「可停止性」与「prefix 是否有进程」放在 `runner-wine`，不进入领域类型。
+- 类型导出经 `application` 再导出给 `ui`；UI 不直接依赖 `storage`/`prefix`/`launch`。

@@ -1,5 +1,8 @@
 # P9 配置编辑与启动打通 Implementation Plan
 
+> 历史实施计划（2026-10-27，P9）。Task U12–U15 的代码片段与验收记录保留原样；
+> 与当前代码不一致的契约、文件路径和流程以文末「当前实现（v0.8.0）」为准。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 完成 GameDetail 的显示、环境变量、DLL override、启动参数编辑；打通启动、运行中状态、`last_played_at` 更新、退出码/错误展示、游戏删除。
@@ -975,3 +978,105 @@ git commit -m "feat(ui): finish configuration editors and launch flow"
     Runner/Settings 页的既有禁用逻辑未改动。
   - `launch_game` 在进程退出后写 `last_played_at`；即使非零退出码也记录，
     与“最近游玩”语义一致。
+
+## 当前实现（v0.8.0）
+
+P9 的 `tasks::launch_game` 已由 `crates/application/src/launching.rs` 接管；
+UI 只负责构造 `LaunchRequest`、消费事件并维护展示状态。
+
+### 新建游戏与平台
+
+- `NewGame` 先打开平台选择弹窗（Windows / Linux），确认后发送
+  `BeginNewGame(platform)` 再打开文件对话框；`CancelNewGame` 关闭弹窗。
+- `DialogIntent::PickExe(Platform::Windows)` 过滤 `*.exe`；
+  `PickExe(Platform::Linux)` 不过滤扩展名。
+- `GameDraft::new(executable_path, platform)`；编辑已有游戏时
+  `GameDraft::from_game` 保留原平台。切换平台只保存字段，不改变已选的
+  runner/prefix 等 Wine 配置。
+- GameDetail 的显示区块：平台选择始终可见；Runner、Prefix、DXVK、
+  DLL Override、winetricks 组件仅在 `Platform::Windows` 时渲染。
+  原生游戏的“可执行文件”对话框不过滤 `.exe`。
+
+### 启动契约（当前）
+
+```rust
+pub struct LaunchRequest {
+    pub game: Game,
+    pub runner: Option<Runner>, // 原生游戏为 None
+    pub session: SessionType,
+    pub global_env: BTreeMap<String, String>,
+    pub inherited_env: BTreeMap<String, String>,
+    pub steam_compat_client: PathBuf,
+    pub default_prefix_root: PathBuf,
+    pub gamescope_path: Option<PathBuf>,
+    pub tuning: LaunchTuning,
+    pub log_path: Option<PathBuf>,
+    pub dxvk_nvapi_source: Option<PathBuf>,
+}
+
+pub struct LaunchTuning {
+    pub enable_esync: bool,
+    pub enable_fsync: bool,
+    pub enable_mangohud: bool,
+    pub mangohud_path: Option<PathBuf>,
+    pub enable_dxvk_nvapi: bool,
+}
+
+pub struct LaunchOutcome {
+    pub exit_code: Option<i32>,
+    pub success: bool,
+    pub stopped: bool,
+    pub session_seconds: i64,
+}
+
+pub enum LaunchEvent {
+    Started { game_id: Uuid, started_at: i64 },
+    Finished { game_id: Uuid, outcome: LaunchOutcome },
+    Failed { game_id: Uuid, error: String },
+}
+```
+
+- UI 使用 `AppService::launch_game_with_events`，通过 `iced::stream` 把
+  `LaunchEvent` 转成 `Message::LaunchEvent`；启动失败另有
+  `Message::LaunchFailed` 兜底。
+- `App.starting`/`App.stopping` 表示启动中/停止中；`App.running:
+  HashMap<Uuid, Option<PathBuf>>` 仅用于展示（原生游戏为 `None`）。
+- 启动前由应用层再次校验：游戏已保存；同一游戏不能重复启动；同一
+  prefix 不能并发；Wine 游戏需要已初始化的 prefix 与可用 runner；
+  全局/游戏环境变量合法且不手写 `WINEDLLOVERRIDES`；
+  MangoHud 启用时必须已找到二进制；强制 gamescope 时必须可用。
+- 原生游戏（`runner: None`）：`validate` 跳过 runner/prefix/DLL 检查，
+  `build_plan` 直接以可执行文件 + 参数运行；`build_env` 不注入任何
+  Wine/Proton 基础变量、esync/fsync、NVAPI 或 `WINEDLLOVERRIDES`，
+  但显示器选择（`__GL_SYNC_DISPLAY_DEVICE`）以及 gamescope/MangoHud
+  包装仍然生效。
+- Wine 游戏在构建计划前，若 `tuning.enable_dxvk_nvapi` 为真，应用层先
+  安装 DXVK-NVAPI（仅 Wine runner）；未配置来源时启动失败。
+- 启动日志写入 `logs/games/<game-id>.log`，上一次内容保留为
+  `.log.old`；stderr 行以 `[stderr]` 前缀记录。
+- 会话结束判定同时检查 launcher 进程组与 prefix 内进程
+  （`prefix_has_processes`），wineserver/Proton 包装器提前退出时不会
+  误报游戏已结束。
+- `last_played_at` 在启动成功时立即写入；退出后按实际
+  `session_seconds` 调用 `add_playtime` 累加游玩时长（SQL 侧
+  `MAX(playtime_seconds + ?, 0)` 保证非负）。被用户停止的会话
+  （`stopped=true`）不显示“异常退出”提示。
+- 停止：`Message::Stop` → `AppService::stop_game`，Wine 游戏先
+  `wineserver -k` 关闭整个 prefix，再终止进程组；原生游戏只终止
+  进程组。`StopFinished` 只在失败时显示错误。
+
+### GameDetail 与日志
+
+- 页头按钮：返回、保存、启动/停止（互斥）、删除游戏；`starting`/
+  `stopping` 期间对应按钮禁用。
+- 区块顺序：封面/概览、基本信息、兼容层与 Prefix（仅 Windows）、
+  显示、环境变量、DLL Override（仅 Windows）、启动参数、组件
+  （仅 Windows）。
+- 封面：可选择/清除/恢复默认；保存时复制到应用数据目录的
+  `covers/`，校验扩展名、可解码性、非零尺寸与最大边长 8192；
+  Library 卡片与详情页共用预览。
+- 概览展示 `最近游玩` 与 `游玩时长`
+  （`widgets::format_playtime`）。
+- 日志页（`Screen::Logs`）读取 `logs/games/<game-id>.log` 尾部
+  `LOG_TAIL_LINES = 1000` 行，每秒自动刷新；Library 与详情页均可
+  进入。

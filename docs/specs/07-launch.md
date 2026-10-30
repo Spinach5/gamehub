@@ -15,15 +15,28 @@
 ## 固定契约
 
 ```rust
+#[derive(Debug, Clone, Default)]
+pub struct LaunchTuning {
+    pub enable_esync: bool,
+    pub enable_fsync: bool,
+    pub enable_mangohud: bool,
+    pub mangohud_path: Option<PathBuf>,
+    pub enable_dxvk_nvapi: bool,
+}
+
 pub struct LaunchRequest {
     pub game: Game,
-    pub runner: Runner,
+    /// 原生 Linux 游戏为 `None`，直接执行可执行文件。
+    pub runner: Option<Runner>,
     pub session: SessionType,
     pub global_env: BTreeMap<String, String>,
     pub inherited_env: BTreeMap<String, String>,
     pub steam_compat_client: PathBuf,
     pub default_prefix_root: PathBuf,
     pub gamescope_path: Option<PathBuf>,
+    pub tuning: LaunchTuning,
+    pub log_path: Option<PathBuf>,
+    pub dxvk_nvapi_source: Option<PathBuf>,
 }
 
 pub struct LaunchPlan {
@@ -50,7 +63,26 @@ pub fn build_plan(req: &LaunchRequest) -> Result<LaunchPlan, LaunchError>;
 pub async fn spawn_plan(
     plan: &LaunchPlan,
 ) -> Result<tokio::process::Child, LaunchError>;
+
+pub async fn spawn_plan_with_log(
+    plan: &LaunchPlan,
+    log_path: Option<&Path>,
+) -> Result<tokio::process::Child, LaunchError>;
 ```
+
+`validate` 的当前规则：
+
+- 可执行文件必须存在；`working_dir` 若设置必须是目录。
+- 仅非原生游戏要求 `runner: Some`、`verify_runner` 通过、prefix 已初始化且 arch 匹配、DLL 名称合法。原生游戏跳过这些检查，忽略 `prefix_path` 状态与全部 Wine 设置。
+- `GamescopeMode::Forced` 需要 `gamescope_path`；启用 MangoHud 需要 `mangohud_path`。
+- 全局或游戏环境变量中出现 `WINEDLLOVERRIDES` 一律拒绝（结构化 override 是唯一入口）；环境变量名按 shell 标识符校验。
+
+`build_plan` 的当前行为：
+
+- 原生游戏：`program = executable_path`、`args = game.args`；不构造 `WineContext`。
+- Windows 游戏：`WineContext::build_command`（Wine 直接执行、Proton `run`）。
+- 随后按需包 gamescope（`--` 分隔）或 MangoHud（`--dlsym`）；`build_env` 再注入调优、显示与 DLL override。
+- 环境优先级：继承 → runner base → 调优默认 → 全局 → 游戏 → 显示器 → `WINEDLLOVERRIDES`；调优相关的 8 个变量先清除继承值，避免宿主机环境污染。
 
 `build_plan` 内部先调用 `validate`；调用方不需要再单独校验。
 
@@ -1391,3 +1423,18 @@ git commit -m "chore(launch): finish launch phase"
   - L4 两个测试的 `let mut request` 未发生修改，去掉 `mut`。
   - `validate` 的 working_dir 检查用 `filter` 形式替代嵌套 `if`，
     避免 `clippy::collapsible_if`，行为不变。
+
+## 当前实现（v0.8.0）
+
+- 契约以本文「固定契约」为准：`runner: Option<Runner>`、`LaunchTuning`、`log_path`、`dxvk_nvapi_source` 是 P6 之后新增的字段；Task L3/L4 中的 `LaunchRequest` 构造片段缺少它们，属历史记录。
+- 平台分支：
+  - `Platform::Windows`：必须有 runner；校验 prefix 状态与 arch；生成 `WINEPREFIX/WINEARCH` 或 Proton 的 `STEAM_COMPAT_*`；合并调优、DLL override。
+  - `Platform::Linux`：`runner = None`；直接执行 `executable_path`；不读取 prefix、不要求 wineboot、不注入任何 Wine 变量、不应用 DLL override；显示选择、gamescope、MangoHud、全局/游戏环境变量和参数照常生效。
+  - 切回 Windows 时，之前保存的 runner/prefix/DLL 值仍在 `Game` 中并重新生效（UI 在原生平台只隐藏、不清空）。
+- 调优环境：
+  - Wine：`enable_esync → WINEESYNC=1`、`enable_fsync → WINEFSYNC=1`、`enable_dxvk_nvapi → DXVK_ENABLE_NVAPI=1 + DXVK_NVAPI_ALLOW_OTHER_DRIVERS=1`。
+  - Proton：关闭 esync/fsync 时写 `PROTON_NO_ESYNC/PROTON_NO_FSYNC=1`；NVAPI 开启写 `PROTON_ENABLE_NVAPI`，关闭写 `PROTON_DISABLE_NVAPI`；两者都带 `DXVK_NVAPI_ALLOW_OTHER_DRIVERS=1`。
+  - 游戏级环境变量可覆盖调优默认值；继承环境中的调优变量先被删除。
+- 显示环境：gamescope 生效时不注入显示器变量；非 gamescope 时按会话/XWayland 选择 `__GL_SYNC_DISPLAY_DEVICE`、`WAYLANDDRV_PRIMARY_MONITOR`、`PROTON_*WAYLAND*`，Wine/Proton 走 X11 时同时设置 `WINE_GRAPHICS_DRIVER=x11` 并移除 Wayland 显示器变量。
+- `spawn_plan_with_log` 在 `spawn_plan` 基础上把 stdout/stderr 重定向到 `logs/games/<game-id>.log`：新日志带时间戳与完整命令行，上一次日志保留为 `.log.old`；保持 `env_clear`、独立进程组与 `kill_on_drop(false)`。打开日志失败时退回继承 stderr，不阻止启动。
+- 应用层使用 `validate` + `build_plan` + `spawn_plan_with_log`；`LaunchOutcome` 增加 `stopped` 与 `session_seconds`，`LaunchEvent` 负责 Started/Finished/Failed。

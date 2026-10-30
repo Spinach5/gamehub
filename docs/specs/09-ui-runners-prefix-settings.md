@@ -1,5 +1,8 @@
 # P8 Runner / Prefix / Settings UI Implementation Plan
 
+> 历史实施计划（2026-10-27，P8）。Task U7–U11 的代码片段与验收记录保留原样；
+> 与当前代码不一致的契约、文件路径和流程以文末「当前实现（v0.8.0）」为准。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 在 UI 中打通 Runner 探测/导入/默认选择、prefix 状态/创建/DXVK 安装、设置保存、Runner/Prefix 删除保护。
@@ -1612,3 +1615,85 @@ git commit -m "test(ui): cover deletion guards and settings tasks"
     `deleting_running_prefix_is_rejected` 覆盖。
   - 合成 Proton 只验证导入/持久化/`pfx` 路径；Proton 下的 DXVK 安装沿用
     共享实现，未额外手工验证。
+
+## 当前实现（v0.8.0）
+
+P8 的状态与任务层在后续版本中迁入 `crates/application`，UI 仅保留消息与视图。
+
+### 架构变化
+
+- `crates/ui/src/tasks.rs`、`draft.rs` 已删除；业务用例由 `AppService`
+  （`crates/application/src/service.rs`）提供，按领域拆成
+  `runners`、`prefixes`、`components`、`settings`、`games`、`delete`、
+  `launching`、`data` 模块。
+- `App.service: Option<AppService>` 取代 `App.db: Option<Db>`；初始化数据
+  通过 `AppService::load_initial()` 返回 `LoadedData`
+  （`games`、`runners`、`settings_map`、`session`、`monitors`、
+  `gamescope_path`、`mangohud_path`、`winetricks_path`）。
+- 草稿与行编辑器位于 `application::editor`：`GameDraft`、`EnvRow`、
+  `DllRow`、`DraftAction`、`EnvAction`/`DllAction`/`ArgsAction`、
+  `env_rows_to_map`、`DraftError`。UI 的 `crate::draft` 路径不再存在。
+- `DeleteTarget` 迁到 `application::delete`，引用检查（默认 Runner、
+  `count_games_using_runner`、`count_games_using_prefix`）与应用层删除
+  一起实现，UI 只发起确认。
+- 运行态由 `AppService.running_games: HashMap<Uuid, RunningGame>` 持有：
+  `RunningGame { process_group, runner: Option<Runner>, wine_prefix }`。
+  UI 的 `running: HashMap<Uuid, Option<PathBuf>>` 只用于展示（原生游戏为
+  `None`）。
+
+### Runner 管理（views/runners.rs）
+
+- 双列卡片：名称、Wine/Proton 徽章、已验证/未验证、默认标记、版本号。
+- 探测/导入期间两个按钮同时禁用；删除按钮在“是默认 Runner”或
+  “被 N 个游戏引用”时禁用，应用层删除时仍会二次校验。
+- 所有文案经 i18n（zh-CN/en-US），不再硬编码中文。
+
+### GameDetail 的兼容层与组件
+
+- Wine 专属区块（Runner、Prefix、状态、DXVK、DLL Override、winetricks
+  组件）只在 `draft.platform == Platform::Windows` 时渲染。Linux 原生页
+  仅保留名称、可执行文件、工作目录、显示、环境变量与启动参数。
+- DXVK 与 DXVK-NVAPI 来源分离：
+  - DXVK 目录仍在详情页选择，点“安装 DXVK”（`Message::InstallDxvk`）
+    立即复制到当前 prefix。
+  - DXVK-NVAPI 来源在设置页配置（`dxvk_nvapi_source`）；启动时若
+    `enable_dxvk_nvapi` 为真且 runner 为 Wine，`AppService::launch_game`
+    先调用 `prefix::install_dxvk_nvapi`，标记文件为
+    `.gamehub-dxvk-nvapi`。未配置来源时启动返回
+    `DxvkNvapiSourceMissing`。
+- winetricks 组件：
+  - 只使用系统 `PATH` 中的 winetricks（`prefix::winetricks_path()`），
+    不打包、不下载；缺失时详情页提示且安装按钮不可用。
+  - 已安装列表来自 prefix 内 `winetricks.log`
+    （`prefix::installed_verbs`），按当前 prefix 刷新。
+  - 预设 verb 下拉 + 自定义 verb 输入；`prefix::normalize_verb` 校验，
+    非法 verb 返回 `ComponentVerbInvalid`。
+  - 需要游戏已保存且 prefix 为 `Initialized`；同一游戏同时只允许一个
+    组件任务，且同一 prefix 上不能与运行中的游戏或其他组件任务并发。
+  - 输出流式写入 `logs/winetricks/<game-id>.log`，UI 显示尾部
+    `COMPONENT_TAIL_LINES = 400` 行。
+  - 取消通过 `terminate_process_group` 终止 winetricks 及其子进程，
+    取消后刷新已安装列表。
+
+### 设置页（views/settings.rs）
+
+- 卡片顺序：外观、默认 Runner、Prefix 根目录、全局环境变量、兼容性。
+- 外观卡片：
+  - 主题为 Light/Dark 分段控件，默认 Light；
+  - 语言为 `Auto`/`zh-CN`/`en-US`；
+  - 字体面板通过 `fc-list` 扫描已安装字体，支持搜索、“仅含 CJK”过滤、
+    预览，列表上限 `FONT_LIST_LIMIT = 80`。
+  - 主题、语言、字体选择后立即单独保存
+    （`SETTING_UI_THEME`/`SETTING_UI_LANGUAGE`/`SETTING_UI_FONT`），
+    批量“保存”会跳过这三项；保存失败按 `NoticeKind::{ThemeSave,
+    LanguageSave, FontSave}` 显示对应提示。
+- 兼容性卡片：
+  - esync/fsync/MangoHud/自动安装 DXVK-NVAPI 四个开关；
+  - MangoHud 检测路径展示；开启但未找到 mangohud 时启动会被拒绝
+    （`MangoHudMissing`）；
+  - DXVK-NVAPI 目录选择/清除；开启自动安装但未选目录时显示警告徽章。
+- 全局环境变量仍为行编辑并序列化为 `global_env` JSON；保存前校验
+  键名、拒绝 `WINEDLLOVERRIDES`、Prefix 根目录必须为绝对路径。
+- 批量设置写入 `enable_esync`、`enable_fsync`、`enable_mangohud`、
+  `auto_install_dxvk_nvapi`、`dxvk_nvapi_source`、`global_env`、
+  `default_runner_id`、`prefix_root`。

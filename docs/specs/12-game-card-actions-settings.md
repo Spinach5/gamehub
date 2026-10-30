@@ -1,11 +1,14 @@
 # P12 游戏卡片操作与兼容层增强设置设计
 
+> 历史设计（P12，v0.2.0）。第 1–9 节保留当时的契约；v0.3.0 之后的行为变化
+> 以文末「当前实现（v0.8.0）」为准。
+
 **Goal:** 游戏卡片提供“启动 / 设置 / 日志”三个操作，启动状态区分“启动中”和“游玩”；新增游戏日志页；设置页增加 DXVK-NVAPI 自动安装/更新、Esync、Fsync、MangoHud 开关，并把这些配置注入启动流程。
 
 **非目标：**
 
 - 不下载 DXVK、DXVK-NVAPI、MangoHud 或任何运行时资源。
-- 不新增“停止游戏”操作。
+- 不新增“停止游戏”操作（v0.3.0 已实现，见文末）。
 - 不为这四项设置提供单游戏覆盖，全部是全局设置。
 - 不做日志上传、日志搜索或日志归档管理。
 
@@ -411,3 +414,79 @@ cargo test --workspace
 6. 启用 NVAPI 自动安装且使用 Wine 时，prefix 内 DLL 和 DllOverrides 被正确安装/更新；源缺失时启动失败并给出明确错误。
 7. 启用 MangoHud 但未安装时启动失败并给出明确错误。
 8. `cargo fmt --check`、`clippy -D warnings`、`cargo test --workspace` 全部通过。
+
+---
+
+## 当前实现（v0.8.0）
+
+### 游戏卡片（views/library.rs）
+
+- 卡片仍为左右布局：左侧封面 + 名称 + 可执行文件路径 + `最近游玩` +
+  `游玩时长`；右侧操作区。
+- 操作按钮：未运行时为“启动”，运行中变为“结束”，结束中禁用并显示
+  “结束中”；另有“设置”“日志”。点击“结束”发送 `Message::Stop`。
+- 状态徽标：`starting` 显示“启动中”，`running` 且不在 `starting` 显示
+  “游玩”；结束中显示“结束中”。
+- 运行集合为 `App.running: HashMap<Uuid, Option<PathBuf>>`：值为 prefix
+  路径，原生游戏为 `None`。新增 `stopping: HashSet<Uuid>`。
+- 封面、主题、语言、按钮文案均来自当前主题与 i18n，卡片不再整体作为
+  按钮，避免嵌套。
+
+### 启动事件（application）
+
+```rust
+pub enum LaunchEvent {
+    Started { game_id: Uuid, started_at: i64 },
+    Finished { game_id: Uuid, outcome: LaunchOutcome },
+    Failed { game_id: Uuid, error: String },
+}
+
+pub struct LaunchOutcome {
+    pub exit_code: Option<i32>,
+    pub success: bool,
+    pub stopped: bool,
+    pub session_seconds: i64,
+}
+```
+
+- 点击启动立即插入 `running` 与 `starting`；`Started` 到达后移除
+  `starting`、写入 `last_played_at`（启动时间语义）。
+- 会话结束时移除 `running`/`starting`/`stopping`，按 `session_seconds`
+  累加 `playtime_seconds`；`stopped=true` 不显示异常退出提示。
+- 启动失败（含 NVAPI 源缺失、MangoHud 缺失、prefix 未初始化）通过
+  `Failed` 或 `Message::LaunchFailed` 进入错误横幅。
+
+### 结束游戏（v0.3.0 起）
+
+- `Message::Stop` → `AppService::stop_game`：Wine/Proton 先调用对应
+  runner 的 `wineserver -k` 结束整个 prefix，再终止启动器进程组；
+  原生游戏只终止进程组。
+- 两种机制任一成功即视为结束成功；同时失败才显示“结束失败”。
+- 同一 prefix 仍禁止并发游戏，因此 `wineserver -k` 不会误伤其他游戏。
+
+### 设置页（views/settings.rs）
+
+- 兼容层增强卡片保留本节设计的四项：Esync、Fsync、MangoHud、
+  DXVK-NVAPI 自动安装与目录选择；行为与第 4、5 节一致。
+- 兼容性卡片位于设置页底部；其上方依次为外观、默认 Runner、Prefix
+  根目录、全局环境变量。
+- 外观卡片为 v0.4.0–v0.8.0 新增：浅色/深色主题、跟随系统/简体中文/
+  English、界面字体选择（`fc-list` 扫描、搜索、仅 CJK 过滤、上限 80）。
+  主题、语言、字体点击即单独保存，批量保存跳过这三个键。
+- 所有设置文案中英文双语；布尔键继续接受 `true`/`false`/`1`/`0`。
+
+### 平台支持（当前工作树增量）
+
+- `Game.platform` 为 `Windows` 或 `Linux`；新建游戏先选择平台，Windows
+  文件对话框过滤 `.exe`，Linux 不过滤。
+- Linux 原生游戏不显示 Wine 专属设置（Runner、Prefix、DXVK、DLL
+  Override、winetricks），启动时 `LaunchRequest.runner = None`，直接
+  执行可执行文件；Esync/Fsync/NVAPI/`WINEDLLOVERRIDES` 均不注入。
+- 游戏卡片与详情页对原生游戏显示平台标识；“结束”走进程组终止。
+
+### 日志与路径
+
+- 启动日志路径仍为 `logs/games/<game-id>.log`，轮转 `.log.old`，
+  stderr 行加 `[stderr] `；日志页显示尾部 1000 行并每秒刷新。
+- winetricks 组件日志为 `logs/winetricks/<game-id>.log`（v0.7.0 起）。
+- 第 2 节关于“不等待读取任务、日志写失败不阻断启动”的行为保持不变。

@@ -20,18 +20,28 @@ pub enum SessionType { X11, Wayland, Unknown }
 pub fn session_from(value: Option<&str>) -> SessionType;
 pub fn detect_session() -> SessionType;
 
-pub struct X11Output {
+pub struct MonitorOutput {
     pub name: String,
     pub connected: bool,
     pub active: bool,
+    pub primary: bool,
+    pub position: Option<(i32, i32)>,
     pub current_mode: Option<(u32, u32, Option<u32>)>,
 }
 
-pub fn parse_xrandr_output(text: &str) -> Vec<X11Output>;
-pub fn list_x11_outputs() -> Vec<X11Output>;
+pub fn parse_xrandr_output(text: &str) -> Vec<MonitorOutput>;
+pub fn list_outputs() -> Vec<MonitorOutput>;
+pub fn parse_wayland_info_outputs(text: &str) -> Vec<MonitorOutput>;
 
 pub fn find_in_path(program: &str, path_env: Option<&OsStr>) -> Option<PathBuf>;
 pub fn gamescope_path() -> Option<PathBuf>;
+pub fn mangohud_path() -> Option<PathBuf>;
+
+/// 临时把 `connector` 设为主屏；返回原主屏或 `None`（已是主屏）。
+pub fn set_primary_output(
+    connector: &str,
+    session: SessionType,
+) -> Result<Option<String>, DisplayError>;
 
 pub fn should_use_gamescope(
     config: &DisplayConfig,
@@ -43,8 +53,11 @@ pub fn build_gamescope_args(
     config: &DisplayConfig,
     session: SessionType,
     available: bool,
+    mangohud: bool,
 ) -> Vec<String>;
 ```
+
+> P5 时的 `X11Output` / `list_x11_outputs` 已演进为 `MonitorOutput` / `list_outputs`；Wayland 无 XWayland 时用 `parse_wayland_info_outputs` 解析 GNOME `DisplayConfig` 的输出列表。下文 Task 代码保留 P5 历史签名。
 
 ---
 
@@ -742,3 +755,18 @@ git commit -m "chore(display): finish display phase"
 - 偏差：D3 测试的 `PathBuf::from(gamescope)` 触发 clippy
   `useless_conversion`，改为直接比较并删除未使用的 `PathBuf` 导入；
   其余实现与计划一致。
+
+## 当前实现（v0.8.0）
+
+- 输出枚举：
+  - X11 / XWayland：解析 `xrandr --query`，`MonitorOutput` 额外记录 `primary` 与 `position`。
+  - Wayland 且无 `DISPLAY`：从 GNOME Mutter `DisplayConfig` 读取物理输出，`parse_wayland_info_outputs` 处理其文本形式，`list_outputs()` 对外统一返回 `MonitorOutput`。
+  - 设置页展示全部已连接输出（含未激活），默认选中主屏或第一块活动屏。
+- 显示器应用方式（v0.3.0 起）：
+  - 使用 gamescope 时由 `-O <connector>` 指定输出，不再注入显示器环境变量。
+  - 非 gamescope 时：Wayland 有 XWayland 或 X11 会话，临时把目标输出设为主屏（Mutter `ApplyMonitorsConfig` / `xrandr --output <name> --primary`），并设置 `__GL_SYNC_DISPLAY_DEVICE`；Wine/Proton 同时强制 X11 驱动。
+  - Wayland 无 XWayland 时，Wine 使用 `WAYLANDDRV_PRIMARY_MONITOR`，Proton 额外启用 `PROTON_ENABLE_WAYLAND`/`PROTON_WAYLAND_MONITOR`。
+  - 游戏退出后恢复原主屏；切换失败只记录 warn，不阻止启动。
+- MangoHud：`mangohud_path()` 查找系统 `mangohud`；gamescope 路径改用 `--mangoapp`，非 gamescope 路径包装为 `mangohud --dlsym`。未安装但启用时报 `MangohudUnavailable`。
+- `build_gamescope_args` 的第四个参数 `mangohud` 控制是否追加 `--mangoapp`；其余真值表不变。
+- 已知限制：非 gamescope 路径不修改分辨率/刷新率；X11 只通过主屏与 `__GL_SYNC_DISPLAY_DEVICE` 选屏。

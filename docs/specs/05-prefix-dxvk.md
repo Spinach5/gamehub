@@ -20,6 +20,8 @@
 - `Game.prefix_path = None` 时默认路径是 `<default_prefix_root>/<game_id>`。
 - **prefix arch 由 runner 决定**：Wine 使用 `game.arch`；Proton 永远使用 `Arch::Win64`（32 位游戏在 win64 prefix 内通过 WoW64 运行）。DXVK 安装按 prefix arch 选择 x64/x32。
 - `prefix_path` 可以是共享目录；引用计数检查在 UI 层做，prefix crate 只负责删除目录。
+- **DXVK-NVAPI 是独立安装项**：与 DXVK 一样从用户目录复制，不动 DXVK 文件；安装以 `.gamehub-dxvk-nvapi` 标记记录。
+- **winetricks 只调用系统安装的版本**：不在本 crate 下载或捆绑；本 crate 只负责 verb 校验、命令构造、读取 `winetricks.log`。实际运行与日志流式输出由 `application::components` 负责。
 
 核心入口：
 
@@ -1440,3 +1442,18 @@ git commit -m "feat(prefix): add prefix deletion and real wine integration test"
 - 偏差 2：`detect_arch` 中 `File::open` 不需要 `mut`（`Read::take` 按值接收），按 clippy 要求去掉。
 - 偏差 3：PF5 测试中删除了未使用的 `std::path::PathBuf` 导入。
 - 验证：`cargo fmt --all --check`、`cargo clippy --workspace --all-targets -- -D warnings`、`cargo test --workspace`（82 passed, 1 ignored）、`cargo build --workspace` 全部通过；`cargo test -p prefix initializes_with_real_system_wine -- --ignored` 通过。
+
+## 当前实现（v0.8.0）
+
+### DXVK 与 DXVK-NVAPI
+
+- DXVK 仍按 PF4/PF5：必需 `d3d11.dll`/`dxgi.dll`，可选 `d3d10core`/`d3d9`；Win64 复制到 `system32`（x64）与 `syswow64`（x32），Win32 的 x32 复制到 `system32`；每个唯一 DLL 写一次 `native,builtin`。
+- 新增 `nvapi.rs`：`DxvkNvapiSource { root }`，Win64 从 `x64/` 取 `nvapi64.dll`/`nvofapi64.dll`、从 `x32/` 取 `nvapi.dll`/`nvofapi.dll`；Win32 从 `x32/` 取小写 DLL。必需文件缺失报 `DxvkNvapiSourceInvalid`；成功后写标记 `.gamehub-dxvk-nvapi`。
+- 启动时若 `LaunchTuning.enable_dxvk_nvapi` 且 runner 为 Wine，`application::launching` 在构建计划前自动安装/更新 NVAPI；Proton 通过环境变量启用，不复制文件。
+
+### winetricks
+
+- `winetricks.rs` 提供：`winetricks_path()`（PATH 查找）、`normalize_verb()`（`[a-z0-9._=-]`、不得以 `-` 开头、长度 ≤ 64、拒绝管理命令）、`installed_verbs()`（读 `windows_root/winetricks.log`，去重并剔除 `w_workaround*`）、`command_for()`。
+- Wine 命令：`WINEPREFIX=<prefix>`、`WINE=<wine 二进制>`；Proton 命令：`WINEPREFIX=<compat>/pfx`、`WINE=<root>/files/bin/wine`，并带 `STEAM_COMPAT_DATA_PATH`、`STEAM_COMPAT_CLIENT_INSTALL_PATH`、`PROTONPATH`。
+- 本 crate 不运行 winetricks；`application::components` 负责逐行流式输出、写 `logs/winetricks/<game-id>.log`、独立进程组与取消。
+- 已安装列表只是前缀内日志的提示值，手工安装的组件同样会显示，不写入数据库。

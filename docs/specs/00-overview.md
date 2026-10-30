@@ -1,12 +1,14 @@
 # gameHub 实施规格总览（v2）
 
 > **For agentic workers:** 本目录是可直接执行的实施规格。按 `docs/plan.md` 的阶段顺序逐份实施；每份 spec 内的任务按顺序执行，使用 `superpowers:subagent-driven-development` 或 `superpowers:executing-plans`，每个任务结束后提交一次。步骤使用 `- [ ]` 复选框跟踪。
+>
+> **现状说明（2026-10-30，v0.8.0）：** 本目录的 P0–P9 任务步骤与 P7–P9 的验收记录是历史实施记录，保持原样不改。凡是与当前代码冲突的「固定契约 / 架构 / 流程」描述已在对应文档中就地修正，并在每篇末尾或开头补「当前实现（v0.8.0）」小节；新增特性（平台、封面、时长、winetricks、i18n、主题、字体、停止、发布流程等）也登记在那里。当前代码是唯一事实来源。
 
-**Goal:** 在 Linux（X11/Wayland）上交付一个完全离线可用的 Windows 游戏启动器：导入本地 exe、管理 Wine/Proton runner、创建 prefix、注入用户提供的 DXVK、配置显示与 gamescope、启动游戏。
+**Goal:** 在 Linux（X11/Wayland）上交付一个完全离线可用的游戏启动器：导入本地 Windows exe 或 Linux 原生可执行文件、管理 Wine/Proton runner、创建 prefix、注入用户提供的 DXVK、配置显示与 gamescope、启动与停止游戏、记录游玩时长。
 
 **Architecture:** Cargo workspace + 8 个 crate。`launcher-core` 只放纯类型、枚举映射、路径计算与日志初始化；`storage` 负责 SQLite；`runner-wine`、`prefix`、`display`、`launch` 各自封装一个职责；`application` 聚合这些能力，提供用例级 API 与统一错误；`ui` 是唯一的 Iced 二进制入口，只做状态机与视图。依赖方向单向，禁止环。
 
-**Tech Stack:** Rust stable / edition 2024、Iced 0.13.1、tokio 1.54、rusqlite 0.41（bundled）、rfd 0.17.2、serde/serde_json、thiserror 2、tracing、uuid v4、chrono（仅用于时间显示）。
+**Tech Stack:** Rust stable / edition 2024（MSRV 1.85）、Iced 0.13.1（`tokio`、`advanced`、`image-without-codecs`）、tokio 1.54、rusqlite 0.41（bundled）、rfd 0.17.2、serde/serde_json、thiserror 2、tracing、uuid v4、chrono（仅用于时间显示）、image 0.24（封面解码）、nix 0.29（信号）、zbus 4.4（GNOME Mutter 主屏切换）。workspace 版本 0.8.0。
 
 ---
 
@@ -31,9 +33,21 @@
 
 ## 2. 产品边界（不扩大）
 
-实现：本地 exe 导入、库管理、Wine/Proton 探测与导入、每游戏或共享 prefix、DXVK 文件注入、X11 输出选择、Wayland gamescope、环境变量与结构化 DLL override、全离线运行。
+实现：本地 exe / Linux 原生可执行文件导入、库管理、Wine/Proton 探测与导入、每游戏或共享 prefix、DXVK 与 DXVK-NVAPI 文件注入、winetricks 组件安装（调用系统 winetricks）、X11 输出选择、Wayland gamescope、环境变量与结构化 DLL override、esync/fsync/MangoHud 调优、游戏启动/停止与日志、手动封面、游玩时长、简体中文/English 界面、浅色/深色主题、界面字体切换、全离线运行。
 
-明确不做：商店/下载/云同步/成就/封面抓取/mod 管理/Steam 客户端集成/Windows 或 macOS；不实现 Wine/Proton 本身；不修改游戏二进制；不自动下载 DXVK。
+明确不做（原始边界仍有效）：商店/下载/云同步/成就/封面抓取/mod 管理/Steam 客户端集成/Windows 或 macOS；不实现 Wine/Proton 本身；不修改游戏二进制；不自动下载 DXVK、DXVK-NVAPI、MangoHud、winetricks 或字体。封面由用户手动选择本地图片，不联网抓取。
+
+后续版本已放宽或补充的边界：
+
+| 原边界 | 当前实现 |
+|---|---|
+| 只导入 exe | 增加 Linux 原生平台；原生游戏不经过 Wine/prefix/DLL，但仍可使用 gamescope、MangoHud、显示选择、环境变量与启动参数 |
+| 「不做封面」 | 支持为每个游戏手动选择本地图片封面，复制到 `<data_root>/covers/`；没有在线封面抓取 |
+| 未提时长 | 记录 `last_played_at`（本次启动时间）与累计 `playtime_seconds` |
+| 未提停止 | 卡片与详情页可停止运行中的游戏：先杀进程组，Wine/Proton 再通过 `wineserver -k` 清理 prefix 内进程 |
+| 仅中文 | 内建 zh-CN / en-US 两套目录，可跟随系统或手动切换 |
+| 固定深色 | 浅色（默认）/ 深色两套主题，可切换并持久化 |
+| 固定字体 | 通过 `fc-list` 扫描本机字体家族，可在设置中切换界面字体 |
 
 ---
 
@@ -48,58 +62,55 @@ gameHub/
 ├── .gitignore
 ├── CHANGELOG.md
 ├── README.md
+├── packaging/                  # nfpm 打包配置（deb/rpm/pacman）
+├── .github/workflows/          # release.yml：多架构构建与发布
 ├── docs/
 │   ├── plan.md                 # v2 入口索引
-│   └── specs/
-│       ├── 00-overview.md
-│       ├── 01-foundation.md
-│       ├── 02-core-types.md
-│       ├── 03-storage.md
-│       ├── 04-runner-wine.md
-│       ├── 05-prefix-dxvk.md
-│       ├── 06-display.md
-│       ├── 07-launch.md
-│       ├── 08-ui-shell.md
-│       ├── 09-ui-runners-prefix-settings.md
-│       ├── 10-ui-config-launch.md
-│       ├── 11-acceptance.md
-│       └── archive/plan-v1.md
+│   ├── acceptance.md           # v2 验收证据
+│   ├── i18n.md                 # 语言目录维护指南
+│   ├── specs/                  # 本目录（P0–P9 历史计划 + P12 设计）
+│   ├── superpowers/specs/      # v0.4–v0.8 特性设计（主题/封面、i18n、字体）
+│   └── archive/plan-v1.md
 └── crates/
     ├── launcher-core/
     │   └── src/{lib.rs,types.rs,paths.rs,text.rs,logging.rs,error.rs}
     ├── storage/
     │   └── src/{lib.rs,schema.rs,mapping.rs,error.rs,repos/{mod,games,runners,settings}.rs}
     ├── runner-wine/
-    │   └── src/{lib.rs,detect.rs,context.rs,error.rs}
+    │   └── src/{lib.rs,detect.rs,context.rs,status.rs,stop.rs,error.rs}
     ├── prefix/
-    │   └── src/{lib.rs,status.rs,initialize.rs,dxvk.rs,error.rs}
+    │   └── src/{lib.rs,status.rs,initialize.rs,dxvk.rs,nvapi.rs,winetricks.rs,error.rs}
     ├── display/
-    │   └── src/{lib.rs,session.rs,xrandr.rs,gamescope.rs}
+    │   └── src/{lib.rs,session.rs,xrandr.rs,gamescope.rs,primary.rs,error.rs}
     ├── launch/
     │   └── src/{lib.rs,resolve.rs,env.rs,plan.rs,spawn.rs,error.rs}
     ├── application/
-    │   └── src/{lib.rs,error.rs,service.rs,data.rs,games.rs,runners.rs,prefixes.rs,launching.rs,delete.rs,settings.rs}
+    │   └── src/{lib.rs,error.rs,service.rs,data.rs,editor.rs,games.rs,runners.rs,prefixes.rs,components.rs,launching.rs,delete.rs,settings.rs}
     └── ui/
+        ├── locales/{zh-CN.json,en-US.json}
         └── src/
             ├── main.rs
             ├── lib.rs
             ├── app/{mod.rs,message.rs,update.rs,view.rs}
-            ├── draft.rs
             ├── dialogs.rs
-            ├── widgets/{mod.rs,choices.rs,confirm.rs}
-            └── views/{mod.rs,library.rs,game_detail.rs,runners.rs,settings.rs}
+            ├── fonts.rs
+            ├── i18n/{mod.rs,errors.rs}
+            ├── styles.rs
+            ├── theme.rs
+            ├── widgets/{mod.rs,badges.rs,choices.rs,controls.rs,cover.rs,layout.rs,modal.rs}
+            └── views/{mod.rs,library.rs,game_detail.rs,logs.rs,runners.rs,settings.rs}
 ```
 
 文件职责边界：
 
 - `launcher-core`：类型、serde 契约、枚举 ↔ 字符串映射、`AppPaths` 计算、UTF-8 截断、`init_logging`。**不依赖** tokio/rusqlite/iced，也不执行文件系统命令（日志目录创建是唯一例外）。
 - `storage`：SQLite 连接、迁移、行映射、CRUD、引用计数，按 `games`/`runners`/`settings` 拆分在 `repos/`。仅它可以直接依赖 rusqlite。
-- `runner-wine`：runner 探测、Proton 目录校验、`WineContext` 环境与命令行构造、`spawn`。
-- `prefix`：prefix 路径解析、状态/arch 检测、wineboot 初始化、DXVK 复制与注册表写入、prefix 删除（调用方负责引用检查）。
-- `display`：会话检测、xrandr 解析、gamescope 查找与参数构造。无 UI、无 DB。
-- `launch`：runner 解析、启动前校验、环境合成、启动计划、spawn。
-- `application`：用例编排（加载、保存、探测、prefix、DXVK、删除、启动），持有 `AppService` 连接句柄，定义统一的 `AppError`。UI 不再直接依赖底层 crate。
-- `ui`：Iced 状态机、视图、rfd 对话框；只把 `AppService` 的异步结果映射成 `Message`。所有 DB/文件/子进程重活都在 `application` 的 `spawn_blocking` 或 tokio task 中。
+- `runner-wine`：runner 探测、Proton 目录校验、`WineContext` 环境与命令行构造、`spawn`、prefix 内进程检测与 `wineserver -k` 停止。
+- `prefix`：prefix 路径解析、状态/arch 检测、wineboot 初始化、DXVK / DXVK-NVAPI 复制与注册表写入、winetricks 命令构造与已安装 verb 读取、prefix 删除（调用方负责引用检查）。
+- `display`：会话检测、xrandr 解析与输出扫描、Mutter DisplayConfig 主屏切换、gamescope / MangoHud 查找与参数构造。无 UI、无 DB。
+- `launch`：runner 解析、启动前校验、环境合成、启动计划、spawn（可带日志文件）。
+- `application`：用例编排（加载、保存、草稿校验、探测、prefix、DXVK、组件安装、删除、启动/停止、设置），持有 `AppService` 连接与运行中进程表，定义统一的 `AppError`。UI 不再直接依赖底层 crate（只依赖 `application` 与 `launcher-core` 的再导出类型）。
+- `ui`：Iced 状态机、视图、主题/样式、i18n、字体扫描、rfd 对话框；只把 `AppService` 的异步结果映射成 `Message`。所有 DB/文件/子进程重活都在 `application` 的 `spawn_blocking` 或 tokio task 中。
 
 依赖方向（禁止反向）：
 
@@ -124,20 +135,22 @@ resolver = "3"
 members = ["crates/*"]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.8.0"
 edition = "2024"
 rust-version = "1.85"
 
 [workspace.dependencies]
 launcher-core = { path = "crates/launcher-core" }
+application = { path = "crates/application" }
 storage = { path = "crates/storage" }
 runner-wine = { path = "crates/runner-wine" }
 prefix = { path = "crates/prefix" }
 display = { path = "crates/display" }
 launch = { path = "crates/launch" }
 
-iced = { version = "0.13.1", features = ["tokio", "advanced"] }
-tokio = { version = "1.54", features = ["rt-multi-thread", "macros", "process", "sync", "time", "fs"] }
+iced = { version = "0.13.1", features = ["tokio", "advanced", "image-without-codecs"] }
+image = { version = "0.24", default-features = false, features = ["png", "jpeg", "webp", "bmp"] }
+tokio = { version = "1.54", features = ["rt-multi-thread", "macros", "process", "sync", "time", "fs", "io-util"] }
 rusqlite = { version = "0.41", features = ["bundled"] }
 rfd = "0.17.2"
 serde = { version = "1.0", features = ["derive"] }
@@ -148,6 +161,8 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "ansi"] }
 tracing-appender = "0.2"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+nix = { version = "0.29", features = ["signal"] }
+zbus = "4.4"
 tempfile = "3"
 
 [workspace.lints.rust]
@@ -175,9 +190,10 @@ panic = "abort"
 | storage | launcher-core, rusqlite, serde_json, thiserror, uuid |
 | runner-wine | launcher-core, tokio(process/time), thiserror, tracing, uuid |
 | prefix | launcher-core, runner-wine, tokio(process/time/fs), thiserror, tracing, uuid |
-| display | launcher-core, tracing |
+| display | launcher-core, tracing, zbus |
 | launch | launcher-core, storage, prefix, display, runner-wine, tokio(process), thiserror, tracing, uuid |
-| ui | iced, tokio, rfd, launcher-core, storage, prefix, display, runner-wine, launch, tracing, tracing-subscriber, tracing-appender, serde_json, uuid, chrono |
+| application | launch, prefix, display, runner-wine, storage, launcher-core, tokio, thiserror, tracing, uuid, nix |
+| ui | iced, image, tokio, rfd, application, launcher-core, tracing, tracing-subscriber, tracing-appender, serde_json, uuid, chrono |
 
 禁止的依赖：任何 Web/WebView/Node/Electron/Tauri 技术、`egui`/`gtk`/`qt`、网络 HTTP 客户端、自动下载库。
 
@@ -219,6 +235,14 @@ panic = "abort"
 | `global_env` | JSON object，`{"KEY":"VALUE"}` |
 | `default_runner_id` | UUID 字符串 |
 | `prefix_root` | 绝对路径字符串 |
+| `enable_esync` | `"1"` / `"0"`（缺省视为开启） |
+| `enable_fsync` | `"1"` / `"0"`（缺省视为开启） |
+| `enable_mangohud` | `"1"` / `"0"` |
+| `auto_install_dxvk_nvapi` | `"1"` / `"0"` |
+| `dxvk_nvapi_source` | 绝对路径字符串 |
+| `ui_theme` | `"light"` / `"dark"` |
+| `ui_language` | `"auto"` 或语言 code（`"zh-CN"` / `"en-US"`） |
+| `ui_font` | 字体家族名；缺失表示默认 `Noto Sans CJK SC` |
 
 ### 5.5 离线
 
@@ -228,8 +252,10 @@ panic = "abort"
 
 ### 5.6 UI 语言与字体
 
-- UI 文案使用简体中文，代码标识符用英文。
-- Iced 0.13 使用 cosmic-text，原生平台自动加载系统字体并做缺字回退；不打包字体文件。P0 必须人工确认中文不出现方块。
+- 界面文案通过内建 i18n 目录提供：`crates/ui/locales/zh-CN.json` 与 `en-US.json`，编译期 `include_str!` 嵌入，无第三方依赖。默认跟随系统（`LANGUAGE → LC_ALL → LC_MESSAGES → LANG`），可在设置中固定为简体中文或 English。
+- 代码标识符用英文；新文案必须同时加入两种目录，测试会校验 key 集合、占位符集合一致，且源码中使用的字面量 key 都存在。
+- 默认字体 `Noto Sans CJK SC`；设置页可扫描 `fc-list` 并切换为其他已安装家族。所选家族没有 Bold 面时所有字重强制 Regular，避免 iced 回退到无中文字形的面导致文字不可见（见 v0.4.1 修复）。不打包字体文件。
+- 日志与 winetricks 输出保持等宽字体，不随界面字体变化。
 
 ---
 
@@ -278,8 +304,22 @@ panic = "abort"
 | P8 Runner/Prefix/Settings UI | [09-ui-runners-prefix-settings.md](09-ui-runners-prefix-settings.md) | U7–U11 | P7, P4 |
 | P9 配置与启动 UI | [10-ui-config-launch.md](10-ui-config-launch.md) | U12–U15 | P6, P8 |
 | 交付验收 | [11-acceptance.md](11-acceptance.md) | A1–A10 | 全部 |
+| P12 卡片操作与兼容层增强 | [12-game-card-actions-settings.md](12-game-card-actions-settings.md) | — | P9 |
 
 任务 ID 全局唯一，跨文档引用时使用该 ID。
+
+P12 之后（v0.2.0–v0.8.0）的特性没有新增 P 级文档，设计与实施记录在：
+
+| 版本 | 内容 | 设计/记录 |
+|---|---|---|
+| v0.2.0 | 游戏卡片操作、启动日志、Esync/Fsync/MangoHud、DXVK-NVAPI | [12-game-card-actions-settings.md](12-game-card-actions-settings.md)、CHANGELOG |
+| v0.3.0 | 停止游戏、显示器扫描、Wayland 主屏切换、`wineserver -k` | CHANGELOG、第 6 篇「当前实现」 |
+| v0.4.0 / v0.4.1 | 浅色/深色主题、侧边栏、封面卡片、CJK 字重修复 | [UI 现代化设计](../superpowers/specs/2026-10-27-ui-modernization-design.md) |
+| v0.5.0 | 简体中文 / English 界面 | [i18n 设计](../superpowers/specs/2026-10-28-i18n-design.md)、[docs/i18n.md](../i18n.md) |
+| v0.6.0 | 游玩时长、启动会话保活、草稿逻辑迁入 `application::editor` | CHANGELOG |
+| v0.7.0 | 系统 winetricks 组件安装 | CHANGELOG |
+| v0.8.0 | 界面字体切换 | [字体设置设计](../superpowers/specs/2026-10-29-ui-font-setting-design.md) |
+| 未发版 | Linux 原生平台支持 | 本次对齐；第 2/3/7/10/12 篇「当前实现」 |
 
 ---
 
@@ -301,3 +341,41 @@ panic = "abort"
 - 不要一次性把一份 spec 的所有任务塞进一个 commit；每个任务至少一个 commit。
 - 发现 spec 与实际 API 不符时：做最小适配，在 `CHANGELOG.md` 和对应 spec 末尾的“实施记录”中注明；不要静默改架构。
 - 任何需要新增依赖、改变 crate 边界、引入联网功能的情况，先停下来向用户确认。
+
+---
+
+## 10. 当前实现（v0.8.0，2026-10-30）
+
+本节是 P0–P12 之后所有已交付能力的索引；各篇文档的「当前实现」小节给出该领域的具体契约。
+
+### 10.1 领域与存储
+
+- `Game.platform: Platform`（`Windows` / `Linux`，默认 Windows）、`Game.cover_path: Option<PathBuf>`、`Game.playtime_seconds: i64` 已进入固定契约。SQLite schema 为 v4，迁移链 v1→v2（cover）→v3（playtime）→v4（platform），已有库原地升级。
+- 草稿与校验位于 `application::editor`（`GameDraft`、`DraftAction`、`DraftError`），UI 不再拥有校验逻辑。
+- 设置键扩展到兼容层调优、DXVK-NVAPI、主题、语言、字体（见 5.4）。
+
+### 10.2 启动与运行
+
+- `LaunchRequest.runner` 为 `Option<Runner>`：Linux 原生游戏为 `None`，直接执行可执行文件；Windows 游戏必须有 runner。原生游戏跳过 runner 校验、prefix 状态/arch、DLL override 与全部 Wine/Proton 环境，但保留显示选择、gamescope、MangoHud、全局/游戏环境变量与启动参数。
+- `LaunchTuning { enable_esync, enable_fsync, enable_mangohud, mangohud_path, enable_dxvk_nvapi }` 在环境合成阶段注入；MangoHud 在非 gamescope 路径作为包装器，gamescope 路径使用 `--mangoapp`。
+- 启动可写 `logs/games/<game-id>.log`（新日志覆盖当前文件，上一次保留为 `.old`）；`application::launching` 以 `LaunchEvent::{Started, Finished, Failed}` 驱动 UI，`Started` 立即写 `last_played_at`，`Finished` 累加 `playtime_seconds`。
+- 会话保活：只有启动器进程组与 prefix 内进程（`/proc/*/environ` 的 `WINEPREFIX`，排除 `wineserver`）都为空才结束；原生游戏只看进程组。
+- 停止：Wine/Proton 先调用对应 runner 的 `wineserver -k` 结束 prefix 内进程，
+  再终止启动器进程组兜底；原生游戏只终止进程组。
+- 主屏切换：非 gamescope 且目标显示器有 X11 呈现时，Wayland 用 Mutter `ApplyMonitorsConfig`、X11 用 `xrandr --output ... --primary` 临时切换，退出后恢复。
+
+### 10.3 Prefix 与组件
+
+- DXVK 安装保持 x64/x32 → system32/syswow64 映射并写注册表；新增 DXVK-NVAPI 安装（`nvapi64/nvofapi64` 与 `nvapi/nvofapi`，注册表 `native,builtin`，marker `.gamehub-dxvk-nvapi`）。
+- 调用系统 `winetricks`（`PATH` 查找，不下载）：verb 白名单校验、从 prefix 的 `winetricks.log` 读取已安装项、每前缀一次一个 verb、输出流式写入 `logs/winetricks/<game-id>.log`、可取消（进程组 SIGTERM→SIGKILL）。
+
+### 10.4 界面
+
+- 侧边栏 + 卡片网格布局，浅色默认 / 深色可切换；封面支持本地图片（复制到 `covers/`）或默认渐变。
+- 新建游戏先选平台再选文件：Windows 只显示 `.exe`，Linux 显示全部文件；详情页对原生游戏隐藏架构、Runner、prefix、DXVK、winetricks、DLL override 等 Wine 专属项，但保留并保存其值，切回 Windows 时恢复生效。
+- 游戏卡片提供启动/停止、设置、日志；详情页提供封面、游玩时长、摘要卡；日志页只保留最近一次启动输出。
+- i18n、主题、语言、字体、兼容层调优、DXVK-NVAPI 目录均在设置页；设置即时保存（主题/语言/字体）或点保存提交（其余）。
+
+### 10.5 发布
+
+- `Cargo.toml` workspace 版本 + `CHANGELOG.md` + annotated tag 是发布三步；`.github/workflows/release.yml` 在 Ubuntu 22.04 容器内为 x86_64/aarch64 构建二进制、`.deb`、`.rpm`、pacman 包与 AppImage。发布只在明确要求时执行。

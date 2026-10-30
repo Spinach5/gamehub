@@ -42,6 +42,9 @@ pub async fn detect_system_wine() -> Vec<Runner>;
 pub async fn detect_from_candidates(candidates: &[PathBuf], timeout: Duration) -> Vec<Runner>;
 pub fn validate_proton_dir(root: &Path) -> Result<Runner, RunnerError>;
 pub fn verify_runner(runner: &Runner) -> Result<(), RunnerError>;
+pub fn prefix_has_processes(wine_prefix: &Path) -> bool;
+pub fn wineserver_path(runner: &Runner) -> Option<PathBuf>;
+pub async fn kill_wine_prefix(runner: &Runner, wine_prefix: &Path) -> Result<(), RunnerError>;
 ```
 
 ---
@@ -813,3 +816,12 @@ git commit -m "test(runner-wine): verify spawn environment propagation"
 - 偏差 1：并行测试暴露真实 ETXTBSY 竞态——一个测试 fork 时会继承另一测试正在写入的脚本 fd，随后 exec 该脚本报 `ExecutableFileBusy`，复现率 5/40。已用测试专用 `tokio::sync::Mutex`（`crate::test_support::EXEC_LOCK`）串行化所有"写脚本并 spawn"的测试，修复后连续 50 次全量运行 0 失败；生产代码不受影响。
 - 偏差 2：R2 实现中 `verify_runner` 同时覆盖 `MissingBinary` 与 `NotExecutable`，计划测试仅断言前者。
 - 验证：`cargo fmt --all --check`、`cargo clippy --workspace --all-targets -- -D warnings`、`cargo test --workspace`（57 passed）、`cargo build --workspace` 全部通过。
+
+## 当前实现（v0.8.0）
+
+- `WineContext`、探测与 Proton 校验保持 P3 契约；新增两个模块：
+  - `status.rs`：`prefix_has_processes(prefix)` 扫描 `/proc/*/environ` 的 `WINEPREFIX`，按 `comm` 排除 `wineserver`，用于判断 Wine 进程是否仍在运行（会话保活）。
+  - `stop.rs`：`wineserver_path` 在 Wine 旁路、Proton 的 `files/bin`、`dist/bin`、`bin` 或 `PATH` 中查找；`kill_wine_prefix` 执行 `wineserver -k`，失败只记录 debug（找不到服务器属正常）。
+- Wine/Proton 的调优环境（`WINEESYNC`、`PROTON_NO_ESYNC` 等）不在这里生成，而是在 `launch::env` 中按 `LaunchTuning` 注入；`WineContext::base_env` 仍只返回基础变量。
+- 原生 Linux 游戏不构造 `WineContext`：`LaunchRequest.runner = None`，启动计划直接执行游戏可执行文件。
+- 真实环境仍以 Wine 10.0 / GE-Proton 11 系列验证；本机 gamescope 未安装。
