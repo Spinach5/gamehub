@@ -26,8 +26,43 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  tag-check:
+    name: Validate tag
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify tag, Cargo.toml and CHANGELOG agree
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          cargo_version="$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -n1)"
+          if [ -z "$cargo_version" ]; then
+            echo "::error::Could not read the workspace version from Cargo.toml."
+            exit 1
+          fi
+          if [ "$version" != "$cargo_version" ]; then
+            echo "::error::Tag ${GITHUB_REF_NAME} does not match Cargo.toml version ${cargo_version}."
+            exit 1
+          fi
+          if ! grep -Eq "^## v${version//./\\.}([[:space:]]|$)" CHANGELOG.md; then
+            echo "::error::CHANGELOG.md has no '## v${version}' section; add release notes before tagging."
+            exit 1
+          fi
+          {
+            echo "### Release checks"
+            echo
+            echo "- Tag: \`${GITHUB_REF_NAME}\`"
+            echo "- Cargo.toml: \`${cargo_version}\`"
+            echo "- CHANGELOG.md: section found"
+          } >> "$GITHUB_STEP_SUMMARY"
+
   build:
-    name: build-${{ matrix.arch }}
+    name: Build ${{ matrix.arch }} packages
+    needs: tag-check
+    if: ${{ !cancelled() && (github.event_name == 'workflow_dispatch' || needs.tag-check.result == 'success') }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
     # Native builds inside Ubuntu 22.04 so every artifact targets glibc >= 2.35,
@@ -213,10 +248,29 @@ jobs:
             echo "::warning title=Smoke test exit ${rc}::${detail}"
           fi
 
+      - name: Write build summary
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          ARCH_LABEL: ${{ matrix.arch }}
+        run: |
+          {
+            echo "### gameHub ${VERSION} · ${ARCH_LABEL}"
+            echo
+            echo "| Artifact | Size | SHA-256 |"
+            echo "| --- | ---: | :--- |"
+            while IFS= read -r file; do
+              printf '| `%s` | %s | `%s` |\n' \
+                "$(basename "$file")" \
+                "$(du -h "$file" | cut -f1)" \
+                "$(sha256sum "$file" | cut -d' ' -f1)"
+            done < <(find dist -maxdepth 1 -type f | sort)
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - uses: actions/upload-artifact@v4
         with:
           name: gamehub-${{ matrix.arch }}
           if-no-files-found: error
+          retention-days: 14
           path: |
             dist/*.deb
             dist/*.rpm
@@ -225,24 +279,122 @@ jobs:
             dist/*.tar.xz
 
   release:
-    name: Publish GitHub release
+    name: Publish GitHub Release
     needs: build
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
     permissions:
       contents: write
+      id-token: write
+      attestations: write
     steps:
+      - uses: actions/checkout@v4
+
       - uses: actions/download-artifact@v4
         with:
           pattern: gamehub-*
           path: dist
           merge-multiple: true
 
-      - name: List release assets
-        run: ls -lh dist
+      - name: Resolve version
+        id: version
+        run: echo "value=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
 
-      - uses: softprops/action-gh-release@v2
+      - name: Generate SHA-256 manifest
+        env:
+          VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          set -euo pipefail
+          cd dist
+          mapfile -t assets < <(find . -maxdepth 1 -type f -printf '%f\n' | sort)
+          if [ "${#assets[@]}" -eq 0 ]; then
+            echo "::error::No release assets were downloaded."
+            exit 1
+          fi
+          sha256sum "${assets[@]}" > "gamehub_${VERSION}_SHA256SUMS"
+          cat "gamehub_${VERSION}_SHA256SUMS"
+
+      - name: Render release notes
+        id: notes
+        env:
+          VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          python3 .github/scripts/render_release_notes.py \
+            --version "$VERSION" \
+            --tag "$GITHUB_REF_NAME" \
+            --repository "$GITHUB_REPOSITORY" \
+            --commit "$(git rev-parse HEAD)" \
+            --changelog CHANGELOG.md \
+            --dist dist \
+            --output "$RUNNER_TEMP/release-body.md" \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Attest release artifacts
+        uses: actions/attest@v4
         with:
-          files: dist/*
-          fail_on_unmatched_files: true
-          generate_release_notes: true
+          subject-checksums: dist/gamehub_${{ steps.version.outputs.value }}_SHA256SUMS
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          VERSION: ${{ steps.version.outputs.value }}
+          TITLE: ${{ steps.notes.outputs.title }}
+          PRERELEASE: ${{ steps.notes.outputs.prerelease }}
+          BODY: ${{ runner.temp }}/release-body.md
+        run: |
+          set -euo pipefail
+
+          # Keep the "latest" badge on the highest semver; a rerun of an older
+          # tag must not move it backwards.
+          latest_flag=(--latest=false)
+          if [ "$PRERELEASE" != "true" ]; then
+            current_latest="$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName --jq '.tagName' 2>/dev/null || true)"
+            if [ -z "$current_latest" ]; then
+              latest_flag=(--latest)
+            else
+              highest="$(printf '%s\n%s\n' "${current_latest#v}" "$VERSION" | sort -V | tail -n1)"
+              if [ "$highest" = "$VERSION" ]; then
+                latest_flag=(--latest)
+              fi
+            fi
+          fi
+
+          prerelease_flag=()
+          if [ "$PRERELEASE" = "true" ]; then
+            prerelease_flag=(--prerelease)
+          fi
+
+          # Create the release as a draft, upload every asset, then publish so
+          # users never see a half-populated release.
+          if gh release view --repo "$GITHUB_REPOSITORY" "$TAG" >/dev/null 2>&1; then
+            gh release edit --repo "$GITHUB_REPOSITORY" "$TAG" --title "$TITLE" --notes-file "$BODY" "${prerelease_flag[@]}"
+          else
+            gh release create --repo "$GITHUB_REPOSITORY" "$TAG" --title "$TITLE" --notes-file "$BODY" \
+              --draft --verify-tag "${prerelease_flag[@]}"
+          fi
+
+          mapfile -d '' assets < <(find dist -maxdepth 1 -type f -print0 | sort -z)
+          gh release upload --repo "$GITHUB_REPOSITORY" "$TAG" "${assets[@]}" --clobber
+
+          gh release edit --repo "$GITHUB_REPOSITORY" "$TAG" --draft=false "${latest_flag[@]}" "${prerelease_flag[@]}"
+
+      - name: Write release summary
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          {
+            echo "## Release ${TAG}"
+            echo
+            echo "Published: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/tag/${TAG}"
+            echo
+            echo "| Asset | Size | SHA-256 |"
+            echo "| --- | ---: | :--- |"
+            while IFS= read -r file; do
+              printf '| `%s` | %s | `%s` |\n' \
+                "$(basename "$file")" \
+                "$(du -h "$file" | cut -f1)" \
+                "$(sha256sum "$file" | cut -d' ' -f1)"
+            done < <(find dist -maxdepth 1 -type f | sort)
+          } >> "$GITHUB_STEP_SUMMARY"
