@@ -169,6 +169,15 @@ pub fn segment_selected(theme: &Theme, _status: button::Status) -> button::Style
     }
 }
 
+pub fn link(theme: &Theme, status: button::Status) -> button::Style {
+    let t = tokens(theme);
+    let text_color = match status {
+        button::Status::Hovered | button::Status::Pressed => t.primary_text,
+        _ => t.text_faint,
+    };
+    button_style(None, text_color, Border::default())
+}
+
 pub fn list_panel(theme: &Theme) -> container::Style {
     let t = tokens(theme);
     container::Style {

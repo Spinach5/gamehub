@@ -1191,8 +1191,34 @@ impl App {
                 }
                 Task::none()
             }
+            Message::OpenHomepage => open_homepage(),
+            Message::HomepageOpened(result) => {
+                if let Err(error) = result {
+                    self.error =
+                        Some(ErrorNotice::new(self.tr("app.error.open_link")).with_detail(error));
+                }
+                Task::none()
+            }
         }
     }
+}
+
+const HOMEPAGE_URL: &str = "https://github.com/Spinach5/gamehub";
+
+fn open_homepage() -> Task<Message> {
+    Task::perform(
+        async {
+            tokio::process::Command::new("xdg-open")
+                .arg(HOMEPAGE_URL)
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .spawn()
+                .map(|_| ())
+                .map_err(|error| error.to_string())
+        },
+        Message::HomepageOpened,
+    )
 }
 
 fn save_theme(

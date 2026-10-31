@@ -2,7 +2,7 @@ use super::{App, DeleteTarget, Message, Screen};
 use crate::theme::font;
 use crate::widgets::{layout, modal};
 use iced::font::Weight;
-use iced::widget::{column, container, row, stack, text};
+use iced::widget::{button, column, container, row, stack, text, tooltip};
 use iced::{Element, Length};
 
 impl App {
@@ -95,12 +95,28 @@ fn sidebar(app: &App) -> Element<'_, Message> {
             ..Default::default()
         });
 
-    let footer = layout::faint(format!(
-        "{} · {}",
-        session_label(app.lang, app.session),
-        default_runner_label(app)
-    ))
-    .size(10);
+    let footer = column![
+        layout::faint(format!(
+            "{} · {}",
+            session_label(app.lang, app.session),
+            default_runner_label(app)
+        ))
+        .size(10),
+        tooltip(
+            button(
+                text(format!("v{}", env!("CARGO_PKG_VERSION")))
+                    .size(10)
+                    .font(font(Weight::Normal)),
+            )
+            .padding([3, 0])
+            .style(crate::styles::link)
+            .on_press(Message::OpenHomepage),
+            text(app.tr("app.version.tooltip")).size(12),
+            tooltip::Position::Top,
+        )
+        .gap(4),
+    ]
+    .spacing(2);
 
     container(
         column![

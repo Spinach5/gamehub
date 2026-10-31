@@ -155,6 +155,8 @@ pub enum Message {
     DllScanConfirm,
     DllScanDirSaved(Result<(), String>),
     DismissSuccess,
+    OpenHomepage,
+    HomepageOpened(Result<(), String>),
 }
 
 #[derive(Debug, Clone)]
