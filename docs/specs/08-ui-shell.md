@@ -1,7 +1,7 @@
 # P7 UI 骨架 Implementation Plan
 
 > 历史实施计划（2026-10-27，P7）。Task U1–U6 的代码片段与验收记录保留原样；
-> 与当前代码不一致的契约、文件路径和流程以文末「当前实现（v0.9.0）」为准。
+> 与当前代码不一致的契约、文件路径和流程以文末「当前实现（v0.10.0）」为准。
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
@@ -17,7 +17,7 @@
 
 ## 最终状态与消息目录（09/10 会继续追加）
 
-> **当前实现提示（v0.9.0）：** 下面的 `App` 是 P7 时的最小状态，仅作为历史起点。现在的状态由 `AppService` 取代 `db` 字段，并新增运行态、平台、显示器、组件、日志、封面、主题/语言/字体等字段（完整列表见文末「当前实现」）。`Message`、`GameDraft`、`DraftAction` 的当前定义见 `crates/ui/src/app/message.rs` 与 `application::editor`。
+> **当前实现提示（v0.10.0）：** 下面的 `App` 是 P7 时的最小状态，仅作为历史起点。现在的状态由 `AppService` 取代 `db` 字段，并新增运行态、平台、显示器、组件、日志、封面、主题/语言/字体等字段（完整列表见文末「当前实现」）。`Message`、`GameDraft`、`DraftAction` 的当前定义见 `crates/ui/src/app/message.rs` 与 `application::editor`。
 
 ```rust
 pub struct App {
@@ -1843,7 +1843,7 @@ git commit -m "chore(ui): finish UI shell phase"
 - 偏差：U1–U5 按可编译检查点合并提交；`sort_by_key`（clippy）；额外持久化
   测试；显式 CJK 默认字体。详见 CHANGELOG P7。
 
-## 当前实现（v0.9.0）
+## 当前实现（v0.10.0）
 
 ### 模块结构
 

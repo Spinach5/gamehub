@@ -833,9 +833,9 @@ git commit -m "docs: record P0 baseline and external dependencies"
 - 偏差：仓库已有初始 commit，`src/main.rs` 为已跟踪文件；仍按 spec 使用
   `mv` 而非 `git mv`。
 
-## 当前实现（v0.9.0）
+## 当前实现（v0.10.0）
 
-- workspace 的 `version` 已随发布推进到 `0.9.0`；`rust-version = "1.85"` 未变，本机验证使用 rustc 1.99.1。
+- workspace 的 `version` 已随发布推进到 `0.10.0`；`rust-version = "1.85"` 未变，本机验证使用 rustc 1.99.1。
 - workspace 依赖在 P0 基础上增加：`image 0.24`（封面解码，仅 ui 使用）、`nix 0.29`（`signal`，进程组终止）、`zbus 4.4`（display 的 Mutter 主屏切换）；`iced` 增加 `image-without-codecs`，`tokio` 增加 `io-util`。成员增加 `application`。
 - `AppPaths` 新增 `covers_dir`、`game_log_path(game_id)` 与 `component_log_path(game_id)`：封面副本写入 `<data_root>/covers/`，启动日志写入 `<data_root>/logs/games/<game-id>.log`，winetricks 日志写入 `<data_root>/logs/winetricks/<game-id>.log`。
 - 日志仍为 stderr + 每日滚动文件；每个游戏的启动日志与 winetricks 日志是另外的文件，不进入滚动日志。

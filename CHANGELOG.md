@@ -2,6 +2,55 @@
 
 本文件记录每个实施阶段完成的内容、与规格的偏差以及验证结果。
 
+## v0.10.0 — DLL Override 目录扫描（2026-10-31）
+
+### 完成内容
+
+- 应用层新增 `application::dll_scan`（`scan_dlls`、`DllCandidate`、
+  `DllScanOutcome`、`DllScanError`、`dll_name_key`）：显式栈深度优先遍历，
+  不跟随目录符号链接，按小写基名去重，非 UTF-8 路径跳过并计数；上限为
+  深度 16、结果 5000、访问文件 200000，超限以 `truncated`/`depth_limited`
+  标记。设置新增前缀 `dll_scan_dir.`，按游戏保存上次成功扫描的目录
+  （`dll_scan_dir.<game-id>`）。
+- UI：游戏详情页 DLL Override 卡片新增「从目录添加」，与手动入口并存。
+  模态框默认扫描可执行文件所在目录或该游戏上次的扫描目录，支持更改目录、
+  重新扫描、实时搜索、名称升降序、全选/反选/清空与统一 Override 模式
+  （复用现有四档，默认 `native,builtin`）。已有 Override 显示「已添加」
+  并禁用复选框；列表渲染上限 300 条，超出时提示用搜索缩小范围。确认后
+  批量追加草稿并复用 `save_draft` 落库；成功后关闭对话框并在页面顶部显示
+  「已添加 N 个 DLL Override」，校验或写库失败则回滚新增行、保留勾选并
+  在对话框内显示错误。扫描在 `spawn_blocking` 中执行，`update` 不做文件
+  系统 IO；`scan_seq` 丢弃过期结果，关闭对话框即取消扫描。
+- 错误与样式：新增中英文 `detail.dll_scan.*`、`errors.dll_scan.*`、
+  `widgets.success`，覆盖目录不存在、无权限、非目录、读取失败与取消，
+  空目录提示「该目录下未找到 .dll 文件」；新增 `styles::checkbox` 三态
+  （选中/悬停/禁用，浅色与深色）与成功提示条组件。
+- 文档：DLL 扫描选择器设计与实施计划写入 `docs/superpowers/`，
+  `docs/specs/10-ui-config-launch.md` 追加当前实现说明。
+
+### 与规格的偏差
+
+- 结果态的模态卡片改为高度自适应：外层留 20px、卡片 `height: Fill`、
+  列表高度改为 `Fill`。固定 `max_width(780)` / `max_height(640)` 与
+  300 行渲染上限仍保留，避免截断/深度警告把页脚挤出窗口。
+- 扫描目录写库失败只记录 `tracing::warn!`，不向用户报错（规格已确认）。
+
+### 验证
+
+- 自动：`cargo fmt --all --check`、`cargo clippy --workspace --all-targets
+  -- -D warnings` 通过；`cargo test --workspace` 350 passed，0 failed，
+  2 ignored（真实 Wine prefix 测试仍为 ignored）。
+- 实机（隔离 `XDG_DATA_HOME`，复用现有游戏与用户设置的 Microsoft JhengHei
+  字体）：大小写与同名 DLL 去重、非 UTF-8 计数、勾选与 `native` 模式落库、
+  成功提示、重开后「已添加」禁用、搜索/全选/反选/清空/排序/重扫、10,000
+  个 DLL 与 15 万文件目录的响应性、空目录/不存在/无权限文案、浅色与深色
+  下复选框图标与文字字迹、手动「添加 DLL Override」均通过。
+- 未覆盖：扫描完成过快（15 万文件 <0.4s），未能实机点击「取消扫描」；
+  取消语义由 `closing_cancels_a_running_scan_but_not_while_saving` 与
+  `stale_scan_results_are_ignored` 单测覆盖。「更改扫描目录」的 Wayland
+  portal 对话框无法用 X11 截图捕获，仅确认按钮与
+  `DialogIntent::PickDllScanDir` 接线。
+
 ## v0.9.0 — Linux 原生游戏（2026-10-30）
 
 ### 完成内容

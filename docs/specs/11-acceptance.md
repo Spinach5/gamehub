@@ -1,7 +1,7 @@
 # 交付验收与手工测试 Implementation Plan
 
 > 历史验收计划与记录（P10，2026-10-27，验收对象 `bf0ecdd`）。Task A1–A10
-> 与勾选状态保留原样；v0.2.0–v0.9.0 的增量验收见文末
+> 与勾选状态保留原样；v0.2.0–v0.10.0 的增量验收见文末
 > 「当前增量验收」。
 
 > **For agentic workers:** 本文件不产出新功能，只定义交付门槛与证据记录方式。所有自动命令必须真实执行并保留输出；无法执行的项必须写明原因，不得标记为通过。
@@ -411,18 +411,18 @@ git commit -m "docs: record v2 acceptance evidence and limitations"
 
 ---
 
-## 当前增量验收（2026-10-30）
+## 当前增量验收（2026-10-31）
 
-基线：`v0.8.0`（`df489d1`）；本次发布的增量为 Linux 原生平台支持。
+基线：`v0.9.0`（`ae47100`）；本次发布的增量为 DLL Override 目录扫描。
 
 ### 自动检查（本次实跑）
 
 - `cargo fmt --all --check`：通过。
 - `cargo clippy --workspace --all-targets -- -D warnings`：通过。
-- `cargo test --workspace`：329 passed，0 failed，2 ignored
+- `cargo test --workspace`：350 passed，0 failed，2 ignored
   （真实 Wine prefix 测试仍为 ignored）。
 
-### v0.2.0–v0.9.0 增量功能
+### v0.2.0–v0.10.0 增量功能
 
 | 版本 | 能力 | 验收方式 |
 |---|---|---|
@@ -434,10 +434,13 @@ git commit -m "docs: record v2 acceptance evidence and limitations"
 | v0.7.0 | 系统 winetricks 组件安装、实时输出、取消、`winetricks.log` 读取 | 组件服务测试；真实 winetricks 20250102 安装 `fontsmooth-rgb` |
 | v0.8.0 | 已安装字体切换、字重吸附、`ui_font` 持久化 | 字体解析/切换/保存竞态测试；浅色/深色实机走查 |
 | v0.9.0 | `Platform::{Windows,Linux}`、平台选择弹窗、原生启动分支、schema v4、停止原生进程 | 领域/存储/编辑器/启动计划/UI 测试；Linux 原生可执行文件启动 |
+| v0.10.0 | DLL Override 目录扫描、去重勾选、批量追加、每游戏扫描目录 | 扫描/设置/UI 状态测试；10,000 个 DLL 与 15 万文件目录实机走查；空目录/不存在/无权限；浅色/深色字迹检查 |
 
 ### 当前限制
 
 - 真实 gamescope 仍未安装，gamescope 启动路径只做参数级测试。
 - 原生 Linux 游戏只验证了测试可执行文件，未覆盖真实商业游戏。
 - 平台支持随 v0.9.0 发布。
+- 扫描完成过快（15 万文件 <0.4s），未能实机点击「取消扫描」；取消语义由单测覆盖。
+- 「更改扫描目录」的 Wayland portal 对话框无法用 X11 截图捕获，未截图验证。
 - 历史验收中的 X11/高 DPI 缺口仍然存在。

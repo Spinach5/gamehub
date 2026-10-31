@@ -14,7 +14,7 @@
 
 ## Task S1: 打开数据库、迁移与 schema
 
-> **当前实现提示（v0.9.0）：** 本节 Step 2 的 `SCHEMA_VERSION = 1` 与 `V1` 是 P2 历史快照。现在的 `schema.rs` 是 `SCHEMA_VERSION = 4`，新库直接建 `V4`，旧库按 `v1→v2→v3→v4` 依次迁移：
+> **当前实现提示（v0.10.0）：** 本节 Step 2 的 `SCHEMA_VERSION = 1` 与 `V1` 是 P2 历史快照。现在的 `schema.rs` 是 `SCHEMA_VERSION = 4`，新库直接建 `V4`，旧库按 `v1→v2→v3→v4` 依次迁移：
 
 | 版本 | 变更 | 迁移语句 |
 |---|---|---|
@@ -1237,7 +1237,7 @@ git commit -m "chore(storage): finish storage phase verification"
 - 偏差：`row_to_runner`/`parse_runner_kind` 延后到 S3 加入，避免 S2 出现
   dead_code 警告；测试模块不重复导入 `rusqlite::params`。公开 API 与 spec 一致。
 
-## 当前实现（v0.9.0）
+## 当前实现（v0.10.0）
 
 - 版本与迁移以本文 S1 的「当前实现提示」为准：v4，新库直接建 V4，旧库逐级迁移。P2 验收中「首次打开自动建 v1；版本 2 报 UnsupportedSchema」仅描述 P2 当时状态。
 - `Game` 写入路径：

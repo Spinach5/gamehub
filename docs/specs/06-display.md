@@ -756,7 +756,7 @@ git commit -m "chore(display): finish display phase"
   `useless_conversion`，改为直接比较并删除未使用的 `PathBuf` 导入；
   其余实现与计划一致。
 
-## 当前实现（v0.9.0）
+## 当前实现（v0.10.0）
 
 - 输出枚举：
   - X11 / XWayland：解析 `xrandr --query`，`MonitorOutput` 额外记录 `primary` 与 `position`。
