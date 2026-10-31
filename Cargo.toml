@@ -16,7 +16,7 @@ prefix = { path = "crates/prefix" }
 display = { path = "crates/display" }
 launch = { path = "crates/launch" }
 
-iced = { version = "0.13.1", features = ["tokio", "advanced", "image-without-codecs"] }
+iced = { version = "0.13.1", features = ["tokio", "advanced", "image-without-codecs", "svg"] }
 image = { version = "0.24", default-features = false, features = ["png", "jpeg", "webp", "bmp"] }
 tokio = { version = "1.54", features = ["rt-multi-thread", "macros", "process", "sync", "time", "fs", "io-util"] }
 rusqlite = { version = "0.41", features = ["bundled"] }

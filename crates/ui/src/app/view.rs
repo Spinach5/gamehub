@@ -83,17 +83,11 @@ fn sidebar(app: &App) -> Element<'_, Message> {
         _ => Screen::Library,
     };
 
-    let mark = container("")
-        .width(Length::Fixed(22.0))
-        .height(Length::Fixed(22.0))
-        .style(|_| iced::widget::container::Style {
-            background: Some(crate::theme::cover_gradient(0).into()),
-            border: iced::Border {
-                radius: 6.0.into(),
-                ..Default::default()
-            },
-            ..Default::default()
-        });
+    let mark = iced::widget::svg(iced::widget::svg::Handle::from_memory(
+        include_bytes!("../../../../packaging/gamehub.svg").as_slice(),
+    ))
+    .width(Length::Fixed(22.0))
+    .height(Length::Fixed(22.0));
 
     let footer = column![
         layout::faint(format!(
