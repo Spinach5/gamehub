@@ -2,7 +2,9 @@ use super::{DeleteTarget, PrefixStatus, Screen};
 use crate::theme::ThemeMode;
 use application::Platform;
 use application::editor::{DraftAction, EnvAction};
-use application::{Game, LaunchEvent, LoadedData, Runner};
+use application::{
+    DllScanError, DllScanOutcome, Game, LaunchEvent, LoadedData, OverrideMode, Runner,
+};
 use std::path::PathBuf;
 use uuid::Uuid;
 
@@ -134,6 +136,25 @@ pub enum Message {
         game_id: uuid::Uuid,
         result: Result<String, String>,
     },
+    OpenDllScan,
+    CloseDllScan,
+    DllScanPickDir,
+    DllScanQueryChanged(String),
+    DllScanToggle(String),
+    DllScanSelectAll,
+    DllScanInvert,
+    DllScanClear,
+    DllScanSortToggled,
+    DllScanModeChanged(OverrideMode),
+    DllScanRescan,
+    DllScanCancelScan,
+    DllScanFinished {
+        seq: u64,
+        result: Result<DllScanOutcome, DllScanError>,
+    },
+    DllScanConfirm,
+    DllScanDirSaved(Result<(), String>),
+    DismissSuccess,
 }
 
 #[derive(Debug, Clone)]

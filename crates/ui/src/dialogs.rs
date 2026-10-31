@@ -11,6 +11,7 @@ pub enum DialogIntent {
     PickDxvkDir,
     PickDxvkNvapiDir,
     PickPrefixRoot,
+    PickDllScanDir,
     PickCover,
 }
 
@@ -32,7 +33,8 @@ fn dialog_impl(intent: DialogIntent, lang: crate::i18n::Lang) -> Option<std::pat
         | DialogIntent::PickPrefixDir
         | DialogIntent::PickDxvkDir
         | DialogIntent::PickDxvkNvapiDir
-        | DialogIntent::PickPrefixRoot => dialog.pick_folder(),
+        | DialogIntent::PickPrefixRoot
+        | DialogIntent::PickDllScanDir => dialog.pick_folder(),
     }
 }
 

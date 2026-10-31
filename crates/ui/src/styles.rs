@@ -1,8 +1,8 @@
 use crate::theme::tokens;
 use iced::overlay::menu;
 use iced::widget::{
-    button, container, pick_list as pick_list_widget, scrollable as scrollable_widget,
-    text_input as text_input_widget, toggler as toggler_widget,
+    button, checkbox as checkbox_widget, container, pick_list as pick_list_widget,
+    scrollable as scrollable_widget, text_input as text_input_widget, toggler as toggler_widget,
 };
 use iced::{Background, Border, Color, Shadow, Theme, Vector};
 
@@ -340,6 +340,46 @@ pub fn toggler(theme: &Theme, status: toggler_widget::Status) -> toggler_widget:
         foreground: Color::WHITE,
         foreground_border_width: 1.0,
         foreground_border_color: t.border_strong,
+    }
+}
+
+pub fn checkbox(theme: &Theme, status: checkbox_widget::Status) -> checkbox_widget::Style {
+    let t = tokens(theme);
+    let (is_checked, is_hovered, is_disabled) = match status {
+        checkbox_widget::Status::Active { is_checked } => (is_checked, false, false),
+        checkbox_widget::Status::Hovered { is_checked } => (is_checked, true, false),
+        checkbox_widget::Status::Disabled { is_checked } => (is_checked, false, true),
+    };
+
+    let (background, border_color, icon_color) = if is_disabled {
+        (
+            t.surface_alt,
+            t.border,
+            if is_checked {
+                t.text_faint
+            } else {
+                Color::TRANSPARENT
+            },
+        )
+    } else if is_checked {
+        (t.primary, t.primary, t.on_primary)
+    } else {
+        (
+            t.surface,
+            if is_hovered {
+                t.border_strong
+            } else {
+                t.border
+            },
+            Color::TRANSPARENT,
+        )
+    };
+
+    checkbox_widget::Style {
+        background: background.into(),
+        icon_color,
+        border: border(border_color, 1.0, 5.0),
+        text_color: Some(if is_disabled { t.text_faint } else { t.text }),
     }
 }
 

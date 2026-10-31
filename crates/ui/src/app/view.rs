@@ -26,6 +26,9 @@ impl App {
         if let Some(error) = &self.error {
             main = main.push(crate::widgets::error_banner(self.lang, error));
         }
+        if let Some(success) = &self.success {
+            main = main.push(crate::widgets::success_banner(self.lang, success));
+        }
         main = main.push(screen);
 
         let base = container(
@@ -65,6 +68,9 @@ impl App {
                 Message::DeleteConfirmed,
                 Message::CancelDelete,
             ));
+        }
+        if let Some(dialog) = &self.dll_scan {
+            layers = layers.push(crate::views::dll_scan::view(self.lang, dialog));
         }
         layers.into()
     }

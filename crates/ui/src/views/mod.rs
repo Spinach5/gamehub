@@ -1,3 +1,4 @@
+pub mod dll_scan;
 pub mod game_detail;
 pub mod library;
 pub mod logs;

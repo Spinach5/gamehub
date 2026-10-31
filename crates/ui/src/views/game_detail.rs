@@ -713,8 +713,13 @@ fn dll_card<'a>(app: &'a App, draft: &'a GameDraft) -> Element<'a, Message> {
         );
     }
     rows = rows.push(
-        controls::secondary_small(app.tr("detail.add_dll"))
-            .on_press(Message::Draft(DraftAction::Dll(DllAction::Add))),
+        row![
+            controls::secondary_small(app.tr("detail.dll_scan.open"))
+                .on_press(Message::OpenDllScan),
+            controls::secondary_small(app.tr("detail.add_dll"))
+                .on_press(Message::Draft(DraftAction::Dll(DllAction::Add))),
+        ]
+        .spacing(8),
     );
 
     layout::section_card(app.tr("detail.section.dll"), None, rows)

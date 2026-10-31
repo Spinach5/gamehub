@@ -148,6 +148,35 @@ pub fn draft_error(lang: Lang, error: &DraftError) -> String {
     )
 }
 
+pub fn dll_scan_error(lang: Lang, error: &application::DllScanError) -> String {
+    use application::DllScanError;
+
+    match error {
+        DllScanError::NotFound(path) => tr_args(
+            lang,
+            "errors.dll_scan.not_found",
+            &[("path", &path.display().to_string())],
+        ),
+        DllScanError::NotDirectory(path) => tr_args(
+            lang,
+            "errors.dll_scan.not_directory",
+            &[("path", &path.display().to_string())],
+        ),
+        DllScanError::PermissionDenied(path) => tr_args(
+            lang,
+            "errors.dll_scan.permission_denied",
+            &[("path", &path.display().to_string())],
+        ),
+        DllScanError::Io { path, message } => tr_args(
+            lang,
+            "errors.dll_scan.io",
+            &[("path", &path.display().to_string()), ("detail", message)],
+        ),
+        DllScanError::Join(detail) => tr_args(lang, "errors.dll_scan.join", &[("detail", detail)]),
+        DllScanError::Cancelled => tr(lang, "errors.dll_scan.cancelled").to_owned(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -201,6 +230,16 @@ mod tests {
             draft_error(&EN_US, &error),
             "Resolution: width and height must both be set or both be empty"
         );
+    }
+
+    #[test]
+    fn scan_errors_render_paths_in_both_languages() {
+        let error = application::DllScanError::NotFound(PathBuf::from("/games/missing"));
+        assert_eq!(
+            dll_scan_error(&EN_US, &error),
+            "Directory not found: /games/missing"
+        );
+        assert_eq!(dll_scan_error(&ZH_CN, &error), "目录不存在：/games/missing");
     }
 
     #[test]

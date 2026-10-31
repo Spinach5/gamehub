@@ -1,3 +1,4 @@
+mod dll_scan;
 mod message;
 mod update;
 mod view;
@@ -19,6 +20,7 @@ pub use application::{
     SETTING_ENABLE_FSYNC, SETTING_ENABLE_MANGOHUD, SETTING_GLOBAL_ENV, SETTING_PREFIX_ROOT,
     SETTING_UI_FONT, SETTING_UI_LANGUAGE, SETTING_UI_THEME,
 };
+pub use dll_scan::{DLL_SCAN_RENDER_LIMIT, DllScanDialog, DllScanPhase};
 pub use message::{Message, SettingsAction};
 
 pub const LOG_TAIL_LINES: usize = 1000;
@@ -336,6 +338,9 @@ pub struct App {
     pub logs_content: String,
     pub logs_error: Option<String>,
     pub confirming: Option<DeleteTarget>,
+    pub dll_scan: Option<DllScanDialog>,
+    pub scan_dirs: HashMap<Uuid, PathBuf>,
+    pub success: Option<String>,
     pub error: Option<ErrorNotice>,
     pub cover_handles: HashMap<Uuid, iced::widget::image::Handle>,
     pub window_width: f32,
@@ -393,6 +398,9 @@ impl App {
             logs_content: String::new(),
             logs_error: None,
             confirming: None,
+            dll_scan: None,
+            scan_dirs: HashMap::new(),
+            success: None,
             error: None,
             cover_handles: HashMap::new(),
             window_width: 1180.0,
@@ -439,6 +447,7 @@ impl App {
         self.gamescope_path = data.gamescope_path;
         self.mangohud_path = data.mangohud_path;
         self.winetricks_path = data.winetricks_path;
+        self.scan_dirs = application::dll_scan_dirs(&data.settings_map);
 
         match SettingsState::from_map(&data.settings_map, &self.paths.default_prefix_root) {
             Ok(settings) => {
@@ -598,8 +607,28 @@ impl App {
         result: Result<Game, String>,
     ) -> iced::Task<Message> {
         self.pending.saving = false;
+        let dll_pending = self.dll_scan.as_mut().and_then(|dialog| {
+            let revision_matches = dialog
+                .pending_apply
+                .as_ref()
+                .is_some_and(|pending| pending.revision == revision);
+            if dialog.game_id != game_id || !revision_matches {
+                return None;
+            }
+            dialog.pending_apply.take()
+        });
         match result {
             Ok(game) => {
+                if let Some(pending) = dll_pending {
+                    let count = pending.added.len();
+                    self.dll_scan = None;
+                    self.success = Some(self.tr_plural_args(
+                        "detail.dll_scan.added.one",
+                        "detail.dll_scan.added.other",
+                        count as u64,
+                        &[("count", &count.to_string())],
+                    ));
+                }
                 // A save can race a running session: keep the session-accounted
                 // fields monotonic instead of taking the draft's older values.
                 let (merged_last_played, merged_playtime) = if let Some(existing) = self
@@ -645,6 +674,20 @@ impl App {
                 cover_load
             }
             Err(error) => {
+                if let Some(pending) = dll_pending {
+                    if let Some(draft) = self.draft.as_mut() {
+                        if draft.id == game_id {
+                            draft.dll_rows = pending.original_rows;
+                        }
+                    }
+                    self.touch_draft();
+                    if let Some(dialog) = self.dll_scan.as_mut() {
+                        dialog.applying = false;
+                        dialog.pending_apply = None;
+                        dialog.apply_error = Some(error);
+                    }
+                    return iced::Task::none();
+                }
                 let current = self.draft.as_ref().is_some_and(|draft| draft.id == game_id)
                     && self.draft_revision == revision;
                 if current {
@@ -725,6 +768,18 @@ impl App {
                     if let Some(id) = self.selected_game {
                         return self.refresh_prefix_status(id);
                     }
+                }
+            }
+            DialogIntent::PickDllScanDir => {
+                if let Some(path) = path {
+                    if let Some(dialog) = self.dll_scan.as_mut() {
+                        dialog.root = Some(path);
+                        dialog.query.clear();
+                        dialog.selected.clear();
+                        dialog.sort_desc = false;
+                        dialog.apply_error = None;
+                    }
+                    return self.start_dll_scan();
                 }
             }
             DialogIntent::PickCover => {

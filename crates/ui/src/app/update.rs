@@ -107,6 +107,75 @@ impl App {
             }
             Message::Pick(intent) => crate::dialogs::pick(intent, self.lang),
             Message::DialogResult { intent, path } => self.apply_dialog_result(intent, path),
+            Message::OpenDllScan => self.open_dll_scan(),
+            Message::CloseDllScan | Message::DllScanCancelScan => {
+                self.close_dll_scan();
+                Task::none()
+            }
+            Message::DllScanPickDir => {
+                crate::dialogs::pick(crate::dialogs::DialogIntent::PickDllScanDir, self.lang)
+            }
+            Message::DllScanQueryChanged(query) => {
+                if let Some(dialog) = self.dll_scan.as_mut() {
+                    dialog.query = query;
+                }
+                Task::none()
+            }
+            Message::DllScanToggle(key) => {
+                if let Some(dialog) = self.dll_scan.as_mut() {
+                    dialog.toggle(key);
+                }
+                Task::none()
+            }
+            Message::DllScanSelectAll => {
+                if let Some(dialog) = self.dll_scan.as_mut() {
+                    dialog.select_all_filtered();
+                }
+                Task::none()
+            }
+            Message::DllScanInvert => {
+                if let Some(dialog) = self.dll_scan.as_mut() {
+                    dialog.invert_filtered();
+                }
+                Task::none()
+            }
+            Message::DllScanClear => {
+                if let Some(dialog) = self.dll_scan.as_mut() {
+                    dialog.selected.clear();
+                }
+                Task::none()
+            }
+            Message::DllScanSortToggled => {
+                if let Some(dialog) = self.dll_scan.as_mut() {
+                    dialog.sort_desc = !dialog.sort_desc;
+                }
+                Task::none()
+            }
+            Message::DllScanModeChanged(mode) => {
+                if let Some(dialog) = self.dll_scan.as_mut() {
+                    dialog.mode = mode;
+                }
+                Task::none()
+            }
+            Message::DllScanRescan => {
+                if self.dll_scan.as_ref().is_some_and(|dialog| dialog.applying) {
+                    Task::none()
+                } else {
+                    self.start_dll_scan()
+                }
+            }
+            Message::DllScanFinished { seq, result } => self.dll_scan_finished(seq, result),
+            Message::DllScanConfirm => self.confirm_dll_scan(),
+            Message::DllScanDirSaved(result) => {
+                if let Err(error) = result {
+                    tracing::warn!(%error, "failed to persist DLL scan directory");
+                }
+                Task::none()
+            }
+            Message::DismissSuccess => {
+                self.success = None;
+                Task::none()
+            }
             Message::DismissError => {
                 self.error = None;
                 Task::none()

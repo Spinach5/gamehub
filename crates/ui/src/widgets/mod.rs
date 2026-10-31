@@ -66,6 +66,37 @@ pub fn error_banner(lang: crate::i18n::Lang, error: &ErrorNotice) -> Element<'_,
         .into()
 }
 
+pub fn success_banner(lang: crate::i18n::Lang, message: &str) -> Element<'_, Message> {
+    let content = iced::widget::row![
+        badge(crate::i18n::tr(lang, "widgets.success"), Tone::Live),
+        text(message.to_owned())
+            .size(14)
+            .font(font(Weight::Semibold)),
+        iced::widget::horizontal_space(),
+        quiet_small(crate::i18n::tr(lang, "common.close")).on_press(Message::DismissSuccess),
+    ]
+    .spacing(10)
+    .width(Length::Fill)
+    .align_y(iced::Alignment::Center);
+
+    container(content)
+        .padding(12)
+        .width(Length::Fill)
+        .style(|theme| {
+            let (_, success) = styles::tone_colors(theme, Tone::Live);
+            container::Style {
+                background: Some(crate::theme::tokens(theme).surface.into()),
+                border: Border {
+                    color: success,
+                    width: 1.0,
+                    radius: 10.0.into(),
+                },
+                ..Default::default()
+            }
+        })
+        .into()
+}
+
 /// Truncates `value` to `max_chars` characters, appending `…` when shortened.
 pub fn truncate(value: &str, max_chars: usize) -> String {
     let mut chars = value.chars();

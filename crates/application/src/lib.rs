@@ -3,6 +3,7 @@ pub mod editor;
 mod components;
 mod data;
 mod delete;
+mod dll_scan;
 mod error;
 mod games;
 mod launching;
@@ -16,6 +17,10 @@ pub use components::{
 };
 pub use data::LoadedData;
 pub use delete::DeleteTarget;
+pub use dll_scan::{
+    DLL_SCAN_MAX_DEPTH, DLL_SCAN_MAX_RESULTS, DLL_SCAN_MAX_VISITED_FILES, DllCandidate,
+    DllScanError, DllScanOutcome, dll_name_key, scan_dlls,
+};
 pub use error::AppError;
 pub use launching::{
     LaunchEvent, LaunchOutcome, LaunchRequest, LaunchTuning, validate_dll_name, validate_env_key,
@@ -25,9 +30,10 @@ pub use prefixes::{
 };
 pub use service::AppService;
 pub use settings::{
-    SETTING_AUTO_INSTALL_DXVK_NVAPI, SETTING_DEFAULT_RUNNER_ID, SETTING_DXVK_NVAPI_SOURCE,
-    SETTING_ENABLE_ESYNC, SETTING_ENABLE_FSYNC, SETTING_ENABLE_MANGOHUD, SETTING_GLOBAL_ENV,
-    SETTING_PREFIX_ROOT, SETTING_UI_FONT, SETTING_UI_LANGUAGE, SETTING_UI_THEME,
+    DLL_SCAN_DIR_SETTING_PREFIX, SETTING_AUTO_INSTALL_DXVK_NVAPI, SETTING_DEFAULT_RUNNER_ID,
+    SETTING_DXVK_NVAPI_SOURCE, SETTING_ENABLE_ESYNC, SETTING_ENABLE_FSYNC, SETTING_ENABLE_MANGOHUD,
+    SETTING_GLOBAL_ENV, SETTING_PREFIX_ROOT, SETTING_UI_FONT, SETTING_UI_LANGUAGE,
+    SETTING_UI_THEME, dll_scan_dir_setting_key, dll_scan_dirs,
 };
 
 pub use display::{MonitorOutput, SessionType, should_use_gamescope};
