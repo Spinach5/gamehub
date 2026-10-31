@@ -2,6 +2,36 @@
 
 本文件记录每个实施阶段完成的内容、与规格的偏差以及验证结果。
 
+## v0.11.0 — 侧边栏版本链接（2026-10-31）
+
+### 完成内容
+
+- UI：侧边栏底部在会话/默认 Runner 行下方显示 `env!("CARGO_PKG_VERSION")`
+  （当前为 `v0.11.0`），使用无背景的链接样式；悬停时文字变为主色，并显示
+  中英文提示「在 GitHub 上打开 gameHub / Open gameHub on GitHub」。
+- 交互：新增 `Message::OpenHomepage` 与 `HomepageOpened`，点击版本号通过
+  `xdg-open` 打开 `https://github.com/Spinach5/gamehub`；启动失败时复用顶部
+  错误横幅显示「无法打开浏览器 / Failed to open the browser」及错误详情。
+- 样式与文案：新增 `styles::link` 与 `app.version.tooltip`、
+  `app.error.open_link` 中英文键。
+
+### 与规格的偏差
+
+- 打开浏览器直接调用 `xdg-open`，未引入平台抽象或 `gio open` 等回退；
+  应用只面向 Linux，`xdg-open` 不可用时仅提示错误。
+
+### 验证
+
+- 自动：`cargo fmt --all --check`、`cargo clippy --workspace --all-targets
+  -- -D warnings` 通过；`cargo test --workspace` 350 passed，0 failed，
+  2 ignored（真实 Wine prefix 测试仍为 ignored）。
+- 实机（X11 + 隔离 `XDG_DATA_HOME`）：浅色与深色主题下侧边栏版本文字均
+  清晰渲染，悬停提示显示正常；用记录参数的 stub `xdg-open` 点击验证传入
+  `https://github.com/Spinach5/gamehub`；测试实例已关闭，未影响正在运行的
+  实例。
+- 未覆盖：未在真实桌面会话中实际拉起浏览器；`xdg-open` 缺失时的错误横幅
+  未实机触发。
+
 ## v0.10.0 — DLL Override 目录扫描（2026-10-31）
 
 ### 完成内容

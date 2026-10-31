@@ -817,7 +817,7 @@ git commit -m "test(runner-wine): verify spawn environment propagation"
 - 偏差 2：R2 实现中 `verify_runner` 同时覆盖 `MissingBinary` 与 `NotExecutable`，计划测试仅断言前者。
 - 验证：`cargo fmt --all --check`、`cargo clippy --workspace --all-targets -- -D warnings`、`cargo test --workspace`（57 passed）、`cargo build --workspace` 全部通过。
 
-## 当前实现（v0.10.0）
+## 当前实现（v0.11.0）
 
 - `WineContext`、探测与 Proton 校验保持 P3 契约；新增两个模块：
   - `status.rs`：`prefix_has_processes(prefix)` 扫描 `/proc/*/environ` 的 `WINEPREFIX`，按 `comm` 排除 `wineserver`，用于判断 Wine 进程是否仍在运行（会话保活）。

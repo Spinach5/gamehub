@@ -2,13 +2,13 @@
 
 > **For agentic workers:** 本目录是可直接执行的实施规格。按 `docs/plan.md` 的阶段顺序逐份实施；每份 spec 内的任务按顺序执行，使用 `superpowers:subagent-driven-development` 或 `superpowers:executing-plans`，每个任务结束后提交一次。步骤使用 `- [ ]` 复选框跟踪。
 >
-> **现状说明（2026-10-31，v0.10.0）：** 本目录的 P0–P9 任务步骤与 P7–P9 的验收记录是历史实施记录，保持原样不改。凡是与当前代码冲突的「固定契约 / 架构 / 流程」描述已在对应文档中就地修正，并在每篇末尾或开头补「当前实现（v0.10.0）」小节；新增特性（平台、封面、时长、winetricks、i18n、主题、字体、停止、发布流程等）也登记在那里。当前代码是唯一事实来源。
+> **现状说明（2026-10-31，v0.11.0）：** 本目录的 P0–P9 任务步骤与 P7–P9 的验收记录是历史实施记录，保持原样不改。凡是与当前代码冲突的「固定契约 / 架构 / 流程」描述已在对应文档中就地修正，并在每篇末尾或开头补「当前实现（v0.11.0）」小节；新增特性（平台、封面、时长、winetricks、i18n、主题、字体、停止、发布流程等）也登记在那里。当前代码是唯一事实来源。
 
 **Goal:** 在 Linux（X11/Wayland）上交付一个完全离线可用的游戏启动器：导入本地 Windows exe 或 Linux 原生可执行文件、管理 Wine/Proton runner、创建 prefix、注入用户提供的 DXVK、配置显示与 gamescope、启动与停止游戏、记录游玩时长。
 
 **Architecture:** Cargo workspace + 8 个 crate。`launcher-core` 只放纯类型、枚举映射、路径计算与日志初始化；`storage` 负责 SQLite；`runner-wine`、`prefix`、`display`、`launch` 各自封装一个职责；`application` 聚合这些能力，提供用例级 API 与统一错误；`ui` 是唯一的 Iced 二进制入口，只做状态机与视图。依赖方向单向，禁止环。
 
-**Tech Stack:** Rust stable / edition 2024（MSRV 1.85）、Iced 0.13.1（`tokio`、`advanced`、`image-without-codecs`）、tokio 1.54、rusqlite 0.41（bundled）、rfd 0.17.2、serde/serde_json、thiserror 2、tracing、uuid v4、chrono（仅用于时间显示）、image 0.24（封面解码）、nix 0.29（信号）、zbus 4.4（GNOME Mutter 主屏切换）。workspace 版本 0.10.0。
+**Tech Stack:** Rust stable / edition 2024（MSRV 1.85）、Iced 0.13.1（`tokio`、`advanced`、`image-without-codecs`）、tokio 1.54、rusqlite 0.41（bundled）、rfd 0.17.2、serde/serde_json、thiserror 2、tracing、uuid v4、chrono（仅用于时间显示）、image 0.24（封面解码）、nix 0.29（信号）、zbus 4.4（GNOME Mutter 主屏切换）。workspace 版本 0.11.0。
 
 ---
 
@@ -135,7 +135,7 @@ resolver = "3"
 members = ["crates/*"]
 
 [workspace.package]
-version = "0.10.0"
+version = "0.11.0"
 edition = "2024"
 rust-version = "1.85"
 
@@ -308,7 +308,7 @@ panic = "abort"
 
 任务 ID 全局唯一，跨文档引用时使用该 ID。
 
-P12 之后（v0.2.0–v0.10.0）的特性没有新增 P 级文档，设计与实施记录在：
+P12 之后（v0.2.0–v0.11.0）的特性没有新增 P 级文档，设计与实施记录在：
 
 | 版本 | 内容 | 设计/记录 |
 |---|---|---|
@@ -321,6 +321,7 @@ P12 之后（v0.2.0–v0.10.0）的特性没有新增 P 级文档，设计与实
 | v0.8.0 | 界面字体切换 | [字体设置设计](../superpowers/specs/2026-10-29-ui-font-setting-design.md) |
 | v0.9.0 | Linux 原生平台支持 | 第 2/3/7/10/12 篇「当前实现」 |
 | v0.10.0 | DLL Override 目录扫描与勾选 | [设计](../superpowers/specs/2026-10-31-dll-scan-picker-design.md)、第 10 篇「当前实现」 |
+| v0.11.0 | 侧边栏版本链接跳转 GitHub | CHANGELOG、第 8 篇「当前实现」 |
 
 ---
 
@@ -345,7 +346,7 @@ P12 之后（v0.2.0–v0.10.0）的特性没有新增 P 级文档，设计与实
 
 ---
 
-## 10. 当前实现（v0.10.0，2026-10-31）
+## 10. 当前实现（v0.11.0，2026-10-31）
 
 本节是 P0–P12 之后所有已交付能力的索引；各篇文档的「当前实现」小节给出该领域的具体契约。
 
@@ -377,6 +378,7 @@ P12 之后（v0.2.0–v0.10.0）的特性没有新增 P 级文档，设计与实
 - 游戏卡片提供启动/停止、设置、日志；详情页提供封面、游玩时长、摘要卡；日志页只保留最近一次启动输出。
 - i18n、主题、语言、字体、兼容层调优、DXVK-NVAPI 目录均在设置页；设置即时保存（主题/语言/字体）或点保存提交（其余）。
 - DLL Override 支持「从目录添加」：递归扫描游戏目录、按小写基名去重、在模态框内搜索/排序/全选/反选后批量追加草稿；已有 Override 标「已添加」并禁用；上次扫描目录按游戏记住。
+- 侧边栏底部显示会话类型、默认 Runner 与 workspace 版本号；版本号为链接，点击经 `xdg-open` 打开项目 GitHub 主页，悬停显示提示。
 
 ### 10.5 发布
 

@@ -613,7 +613,7 @@ git commit -m "test(launcher-core): lock serialization contracts"
 
 - 2026-10-26 完成。20 个单元测试 + 2 个集成测试通过；无偏差。
 
-## 当前实现（v0.10.0）
+## 当前实现（v0.11.0）
 
 - `types.rs` 仍只有领域类型，没有 IO；新增 `Platform` 与上述三个 `Game` 字段。
 - 契约测试 `game_json_uses_fixed_field_names` 的 key 列表已包含 `cover_path`、`platform`、`playtime_seconds`；另有 `platform_serializes_as_snake_case`、`platform_parse_is_exact`、`platform_as_str_matches_serde`、`platform_defaults_to_windows_and_reports_native`、`game_round_trips_with_cover_path`。

@@ -1443,7 +1443,7 @@ git commit -m "feat(prefix): add prefix deletion and real wine integration test"
 - 偏差 3：PF5 测试中删除了未使用的 `std::path::PathBuf` 导入。
 - 验证：`cargo fmt --all --check`、`cargo clippy --workspace --all-targets -- -D warnings`、`cargo test --workspace`（82 passed, 1 ignored）、`cargo build --workspace` 全部通过；`cargo test -p prefix initializes_with_real_system_wine -- --ignored` 通过。
 
-## 当前实现（v0.10.0）
+## 当前实现（v0.11.0）
 
 ### DXVK 与 DXVK-NVAPI
 

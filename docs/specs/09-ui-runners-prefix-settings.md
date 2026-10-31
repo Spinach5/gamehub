@@ -1,7 +1,7 @@
 # P8 Runner / Prefix / Settings UI Implementation Plan
 
 > 历史实施计划（2026-10-27，P8）。Task U7–U11 的代码片段与验收记录保留原样；
-> 与当前代码不一致的契约、文件路径和流程以文末「当前实现（v0.10.0）」为准。
+> 与当前代码不一致的契约、文件路径和流程以文末「当前实现（v0.11.0）」为准。
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -1616,7 +1616,7 @@ git commit -m "test(ui): cover deletion guards and settings tasks"
   - 合成 Proton 只验证导入/持久化/`pfx` 路径；Proton 下的 DXVK 安装沿用
     共享实现，未额外手工验证。
 
-## 当前实现（v0.10.0）
+## 当前实现（v0.11.0）
 
 P8 的状态与任务层在后续版本中迁入 `crates/application`，UI 仅保留消息与视图。
 
