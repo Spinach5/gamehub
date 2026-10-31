@@ -8,7 +8,7 @@
 
 **Architecture:** Cargo workspace + 8 个 crate。`launcher-core` 只放纯类型、枚举映射、路径计算与日志初始化；`storage` 负责 SQLite；`runner-wine`、`prefix`、`display`、`launch` 各自封装一个职责；`application` 聚合这些能力，提供用例级 API 与统一错误；`ui` 是唯一的 Iced 二进制入口，只做状态机与视图。依赖方向单向，禁止环。
 
-**Tech Stack:** Rust stable / edition 2024（MSRV 1.85）、Iced 0.13.1（`tokio`、`advanced`、`image-without-codecs`、`svg`）、tokio 1.54、rusqlite 0.41（bundled）、rfd 0.17.2、serde/serde_json、thiserror 2、tracing、uuid v4、chrono（仅用于时间显示）、image 0.24（封面解码）、nix 0.29（信号）、zbus 4.4（GNOME Mutter 主屏切换）。workspace 版本 0.12.0。
+**Tech Stack:** Rust stable / edition 2024（MSRV 1.85）、Iced 0.13.1（`tokio`、`advanced`、`image-without-codecs`、`svg`）、tokio 1.54、rusqlite 0.41（bundled）、rfd 0.17.2、serde/serde_json、thiserror 2、tracing、uuid v4、chrono（仅用于时间显示）、image 0.24（封面解码）、nix 0.29（信号）、zbus 4.4（GNOME Mutter 主屏切换）。workspace 版本 0.12.1。
 
 ---
 
@@ -135,7 +135,7 @@ resolver = "3"
 members = ["crates/*"]
 
 [workspace.package]
-version = "0.12.0"
+version = "0.12.1"
 edition = "2024"
 rust-version = "1.85"
 
@@ -385,3 +385,4 @@ P12 之后（v0.2.0–v0.12.0）的特性没有新增 P 级文档，设计与实
 ### 10.5 发布
 
 - `Cargo.toml` workspace 版本 + `CHANGELOG.md` + annotated tag 是发布三步；`.github/workflows/release.yml` 在 Ubuntu 22.04 容器内为 x86_64/aarch64 构建二进制、`.deb`、`.rpm`、pacman 包与 AppImage。发布只在明确要求时执行。
+- 打 tag 后先校验 tag、`Cargo.toml` 与 `CHANGELOG.md` 版本一致；发布页由 `.github/scripts/render_release_notes.py` 从 CHANGELOG 生成，包含更新摘要、按包格式与架构分组的下载地址、安装命令、系统要求与构建信息。发布过程生成 `gamehub_<version>_SHA256SUMS` 与 SLSA 来源证明，并按草稿→上传全部产物→正式发布执行。

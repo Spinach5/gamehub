@@ -2,6 +2,39 @@
 
 本文件记录每个实施阶段完成的内容、与规格的偏差以及验证结果。
 
+## v0.12.1 — 发布工作流升级（2026-10-31）
+
+### 完成内容
+
+- 发布页：新增 `.github/scripts/render_release_notes.py`，从 `CHANGELOG.md`
+  的「完成内容」小节生成品牌化 Release 正文，包含居中的品牌图标与版本标题、
+  更新摘要、下载地址、安装命令、校验方式、系统要求和构建信息。
+- 下载地址：按 AppImage、`.deb`、`.rpm`、`.pkg.tar.zst`、`.tar.xz` 分组，
+  分别提供 x86_64 与 aarch64 直链，并附对应安装命令，避免用户自行辨认
+  文件名。
+- 发布流程：推送 `v*` tag 时先校验 tag、`Cargo.toml` 与 `CHANGELOG.md`
+  版本一致；产物汇总后生成 `gamehub_<version>_SHA256SUMS`，并通过
+  `actions/attest` 生成 SLSA 来源证明；发布按「草稿 → 上传全部产物 →
+  正式发布」执行，避免出现半填充页面。
+- 发布元数据：Release 标题由版本与 CHANGELOG 标题组合生成；含 `-` 的
+  版本自动标记为预发布；`latest` 徽标按 semver 排序更新，重跑旧 tag 不会
+  让徽标回退。
+- 手动触发：`workflow_dispatch` 仅执行构建与校验，不创建或修改 Release，
+  避免和 tag 版本不一致的产物被发布。
+- 文档：更新 `docs/specs/00-overview.md` 第 10.5 节，记录新的发布流程与
+  发布页内容来源。
+
+### 验证
+
+- 自动：`actionlint`、`bash -n`、`python3 -m py_compile` 通过；发布正文
+  生成脚本对 CHANGELOG 中全部 16 个历史版本均能成功渲染。
+- 渲染：经 GitHub Markdown API 校验生成正文，包含 5 个标题、10 个下载
+  链接、5 个代码块和 1 个引用块；硬换行的中文条目合并后无跨行 `<br>`。
+- 校验文件：本地生成并验证 `gamehub_<version>_SHA256SUMS` 可被
+  `sha256sum -c --ignore-missing` 正确读取。
+- 未覆盖：未在真实 tag 推送前端到端运行完整 Release 工作流；首次发布后
+  需检查下载直链与来源证明。
+
 ## v0.12.0 — SVG 品牌图标（2026-10-31）
 
 ### 完成内容
