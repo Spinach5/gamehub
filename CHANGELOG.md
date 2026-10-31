@@ -2,6 +2,31 @@
 
 本文件记录每个实施阶段完成的内容、与规格的偏差以及验证结果。
 
+## v0.12.0 — SVG 品牌图标（2026-10-31）
+
+### 完成内容
+
+- UI：侧边栏顶部图标由运行时绘制的紫色渐变方块改为 `packaging/gamehub.svg`
+  品牌图标；通过 `include_bytes!` 内嵌、iced `svg` 渲染，尺寸保持 22×22，
+  浅色与深色主题均保留图标原色。
+- 依赖：workspace 的 `iced` 启用 `svg` feature（经 `iced_tiny_skia` /
+  `iced_wgpu` 引入 `resvg`），`Cargo.lock` 同步更新。
+
+### 与规格的偏差
+
+- 通过 iced 内置 feature 增加 `resvg` 传递依赖，未新增顶层 crate；图标在
+  运行时按 22px 光栅化，未做预渲染或缓存。
+
+### 验证
+
+- 自动：`cargo fmt --all --check`、`cargo clippy --workspace --all-targets
+  -- -D warnings` 通过；`cargo test --workspace` 350 passed，0 failed，
+  2 ignored（真实 Wine prefix 测试仍为 ignored）。
+- 实机（X11 + 隔离 `XDG_DATA_HOME`）：浅色与深色主题下侧边栏图标均正确
+  渲染，放大截图确认圆角深色底与蓝色手柄细节；测试实例已关闭，未影响正在
+  运行的实例。
+- 未覆盖：未在高 DPI 或其他缩放比例下检查图标清晰度。
+
 ## v0.11.0 — 侧边栏版本链接（2026-10-31）
 
 ### 完成内容

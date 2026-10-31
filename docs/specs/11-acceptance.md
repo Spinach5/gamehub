@@ -1,7 +1,7 @@
 # 交付验收与手工测试 Implementation Plan
 
 > 历史验收计划与记录（P10，2026-10-27，验收对象 `bf0ecdd`）。Task A1–A10
-> 与勾选状态保留原样；v0.2.0–v0.11.0 的增量验收见文末
+> 与勾选状态保留原样；v0.2.0–v0.12.0 的增量验收见文末
 > 「当前增量验收」。
 
 > **For agentic workers:** 本文件不产出新功能，只定义交付门槛与证据记录方式。所有自动命令必须真实执行并保留输出；无法执行的项必须写明原因，不得标记为通过。
@@ -413,7 +413,7 @@ git commit -m "docs: record v2 acceptance evidence and limitations"
 
 ## 当前增量验收（2026-10-31）
 
-基线：`v0.10.0`（`bdd55cc`）；本次发布的增量为侧边栏版本链接。
+基线：`v0.11.0`（`f96a463`）；本次发布的增量为侧边栏 SVG 品牌图标。
 
 ### 自动检查（本次实跑）
 
@@ -422,7 +422,7 @@ git commit -m "docs: record v2 acceptance evidence and limitations"
 - `cargo test --workspace`：350 passed，0 failed，2 ignored
   （真实 Wine prefix 测试仍为 ignored）。
 
-### v0.2.0–v0.11.0 增量功能
+### v0.2.0–v0.12.0 增量功能
 
 | 版本 | 能力 | 验收方式 |
 |---|---|---|
@@ -436,6 +436,7 @@ git commit -m "docs: record v2 acceptance evidence and limitations"
 | v0.9.0 | `Platform::{Windows,Linux}`、平台选择弹窗、原生启动分支、schema v4、停止原生进程 | 领域/存储/编辑器/启动计划/UI 测试；Linux 原生可执行文件启动 |
 | v0.10.0 | DLL Override 目录扫描、去重勾选、批量追加、每游戏扫描目录 | 扫描/设置/UI 状态测试；10,000 个 DLL 与 15 万文件目录实机走查；空目录/不存在/无权限；浅色/深色字迹检查 |
 | v0.11.0 | 侧边栏版本号、链接样式与悬停提示、点击打开项目 GitHub | 浅色/深色实机截图与悬停提示；stub `xdg-open` 验证传入 URL |
+| v0.12.0 | 侧边栏品牌图标由渐变方块改为 `packaging/gamehub.svg`（`include_bytes!` + `iced::widget::svg`，22×22） | 浅色/深色实机截图与 4× 放大取色；`cargo check` 确认 iced `svg` 特性引入的 resvg 依赖可用 |
 
 ### 当前限制
 
@@ -445,4 +446,5 @@ git commit -m "docs: record v2 acceptance evidence and limitations"
 - 扫描完成过快（15 万文件 <0.4s），未能实机点击「取消扫描」；取消语义由单测覆盖。
 - 「更改扫描目录」的 Wayland portal 对话框无法用 X11 截图捕获，未截图验证。
 - 版本链接用记录参数的 stub `xdg-open` 验证，未在真实桌面会话中拉起浏览器；`xdg-open` 缺失时的错误横幅未实机触发。
+- SVG 品牌图标只在缩放因子 1 的 X11 截图下核对，高 DPI 下的清晰度未验证。
 - 历史验收中的 X11/高 DPI 缺口仍然存在。
