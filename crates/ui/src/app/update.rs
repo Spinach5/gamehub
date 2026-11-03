@@ -847,6 +847,14 @@ impl App {
                 self.window_width = width;
                 Task::none()
             }
+            Message::ScrollbarActivity => {
+                self.note_scroll_activity();
+                Task::none()
+            }
+            Message::ScrollbarTick => {
+                self.update_scrollbar_fade();
+                Task::none()
+            }
             Message::ConfirmDelete(target) => {
                 self.confirming = Some(target);
                 Task::none()

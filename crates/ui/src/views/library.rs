@@ -76,8 +76,10 @@ pub fn view(app: &App) -> Element<'_, Message> {
         content = content.push(grid(app));
     }
 
+    let scrollbar_alpha = app.scrollbar_alpha();
     scrollable(content)
-        .style(crate::styles::scrollable)
+        .style(move |theme, status| crate::styles::scrollable(theme, status, scrollbar_alpha))
+        .on_scroll(|_| Message::ScrollbarActivity)
         .height(Length::Fill)
         .into()
 }

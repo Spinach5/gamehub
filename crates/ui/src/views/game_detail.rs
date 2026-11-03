@@ -97,7 +97,11 @@ pub fn view(app: &App) -> Element<'_, Message> {
     let body = row![
         container(
             scrollable(left)
-                .style(styles::scrollable)
+                .style({
+                    let scrollbar_alpha = app.scrollbar_alpha();
+                    move |theme, status| styles::scrollable(theme, status, scrollbar_alpha)
+                })
+                .on_scroll(|_| Message::ScrollbarActivity)
                 .height(Length::Fill)
         )
         .width(Length::Fill)
@@ -866,7 +870,11 @@ fn summary_card<'a>(app: &'a App, draft: &'a GameDraft) -> Element<'a, Message> 
                 .width(Length::Fill)
                 .align_x(iced::Alignment::Center),
         )
-        .style(styles::scrollable)
+        .style({
+            let scrollbar_alpha = app.scrollbar_alpha();
+            move |theme, status| styles::scrollable(theme, status, scrollbar_alpha)
+        })
+        .on_scroll(|_| Message::ScrollbarActivity)
         .height(Length::Fill),
     )
     .padding(16)

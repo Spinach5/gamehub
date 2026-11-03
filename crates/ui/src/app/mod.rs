@@ -27,6 +27,15 @@ pub const LOG_TAIL_LINES: usize = 1000;
 pub const COMPONENT_TAIL_LINES: usize = 400;
 pub const FONT_LIST_LIMIT: usize = 80;
 
+/// How long scrollbars stay fully visible after the last scroll.
+const SCROLLBAR_HIDE_DELAY: std::time::Duration = std::time::Duration::from_secs(1);
+/// How long the scrollbars take to fade out once the delay has elapsed.
+const SCROLLBAR_FADE_DURATION: std::time::Duration = std::time::Duration::from_millis(300);
+/// Idle poll interval used to notice when the hide delay has elapsed.
+const SCROLLBAR_IDLE_POLL: std::time::Duration = std::time::Duration::from_millis(50);
+/// Frame interval while the scrollbars are fading out.
+const SCROLLBAR_FADE_FRAME: std::time::Duration = std::time::Duration::from_millis(16);
+
 /// An in-flight winetricks run. The plan is kept so the installed list can be
 /// refreshed against the same prefix even if the draft changes meanwhile.
 #[derive(Debug, Clone)]
@@ -345,6 +354,8 @@ pub struct App {
     pub cover_handles: HashMap<Uuid, iced::widget::image::Handle>,
     pub window_width: f32,
     pub lang: Lang,
+    scrollbar_last_activity: Option<std::time::Instant>,
+    scrollbar_fade_start: Option<std::time::Instant>,
 }
 
 impl App {
@@ -405,6 +416,8 @@ impl App {
             cover_handles: HashMap::new(),
             window_width: 1180.0,
             lang,
+            scrollbar_last_activity: Some(std::time::Instant::now()),
+            scrollbar_fade_start: None,
         };
 
         match service {
@@ -938,18 +951,73 @@ impl App {
         )
     }
 
+    /// Opacity of the scrollbars, derived from how long the user has been idle.
+    ///
+    /// Scrollbars stay solid for [`SCROLLBAR_HIDE_DELAY`] after the last
+    /// scroll, then fade linearly to zero over [`SCROLLBAR_FADE_DURATION`].
+    pub fn scrollbar_alpha(&self) -> f32 {
+        if self.scrollbar_last_activity.is_none() {
+            return 0.0;
+        }
+
+        let Some(fade_start) = self.scrollbar_fade_start else {
+            return 1.0;
+        };
+
+        let fade = fade_start.elapsed().as_secs_f32() / SCROLLBAR_FADE_DURATION.as_secs_f32();
+        (1.0 - fade).clamp(0.0, 1.0)
+    }
+
+    /// Starts the fade once the hide delay has elapsed since the last scroll.
+    ///
+    /// The fade is anchored to the tick that observes the delay instead of the
+    /// theoretical deadline, so the first fade frame always starts at full
+    /// opacity and the fade never jumps.
+    fn update_scrollbar_fade(&mut self) {
+        if self.scrollbar_fade_start.is_some() {
+            return;
+        }
+
+        let Some(last_activity) = self.scrollbar_last_activity else {
+            return;
+        };
+
+        if last_activity.elapsed() > SCROLLBAR_HIDE_DELAY {
+            self.scrollbar_fade_start = Some(std::time::Instant::now());
+        }
+    }
+
+    fn scrollbar_fading(&self) -> bool {
+        self.scrollbar_fade_start.is_some()
+    }
+
+    fn note_scroll_activity(&mut self) {
+        self.scrollbar_last_activity = Some(std::time::Instant::now());
+        self.scrollbar_fade_start = None;
+    }
+
     pub fn subscription(&self) -> iced::Subscription<Message> {
         let resized =
             iced::window::resize_events().map(|(_id, size)| Message::WindowResized(size.width));
 
+        let mut subscriptions = vec![resized];
+
         if self.screen == Screen::Logs {
-            iced::Subscription::batch([
-                resized,
+            subscriptions.push(
                 iced::time::every(std::time::Duration::from_secs(1)).map(|_| Message::RefreshLogs),
-            ])
-        } else {
-            resized
+            );
         }
+
+        if self.scrollbar_alpha() > 0.0 {
+            let interval = if self.scrollbar_fading() {
+                SCROLLBAR_FADE_FRAME
+            } else {
+                SCROLLBAR_IDLE_POLL
+            };
+            subscriptions.push(iced::time::every(interval).map(|_| Message::ScrollbarTick));
+        }
+
+        iced::Subscription::batch(subscriptions)
     }
 }
 
@@ -990,6 +1058,50 @@ mod tests {
         app.settings.language = LanguagePref::Fixed(&crate::i18n::ZH_CN);
         app.lang = &crate::i18n::ZH_CN;
         app
+    }
+
+    #[test]
+    fn scrollbars_fade_after_one_second_of_idle() {
+        let mut app = app();
+
+        app.scrollbar_last_activity = Some(std::time::Instant::now());
+        assert_eq!(app.scrollbar_alpha(), 1.0);
+
+        // Still inside the idle delay: no fade yet.
+        app.scrollbar_last_activity =
+            Some(std::time::Instant::now() - std::time::Duration::from_millis(500));
+        app.update_scrollbar_fade();
+        assert_eq!(app.scrollbar_alpha(), 1.0);
+        assert!(!app.scrollbar_fading());
+
+        // Once the delay elapses the fade starts at full opacity.
+        app.scrollbar_last_activity = Some(
+            std::time::Instant::now() - SCROLLBAR_HIDE_DELAY - std::time::Duration::from_millis(1),
+        );
+        app.update_scrollbar_fade();
+        assert!(app.scrollbar_fading());
+        assert!(app.scrollbar_alpha() > 0.99);
+
+        // Halfway through the fade the scrollbar is partially transparent.
+        app.scrollbar_fade_start = Some(std::time::Instant::now() - SCROLLBAR_FADE_DURATION / 2);
+        let fading = app.scrollbar_alpha();
+        assert!(
+            fading > 0.0 && fading < 1.0,
+            "expected a partial fade, got {fading}"
+        );
+
+        // The fade ends completely transparent.
+        app.scrollbar_fade_start = Some(
+            std::time::Instant::now()
+                - SCROLLBAR_FADE_DURATION
+                - std::time::Duration::from_millis(1),
+        );
+        assert_eq!(app.scrollbar_alpha(), 0.0);
+
+        // New scroll activity restores full opacity immediately.
+        app.note_scroll_activity();
+        assert_eq!(app.scrollbar_alpha(), 1.0);
+        assert!(!app.scrollbar_fading());
     }
 
     #[test]

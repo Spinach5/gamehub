@@ -6,7 +6,11 @@ use iced::font::Weight;
 use iced::widget::{checkbox, column, container, pick_list, row, scrollable, text, text_input};
 use iced::{Element, Length};
 
-pub fn view<'a>(lang: crate::i18n::Lang, dialog: &'a DllScanDialog) -> Element<'a, Message> {
+pub fn view<'a>(
+    lang: crate::i18n::Lang,
+    dialog: &'a DllScanDialog,
+    scrollbar_alpha: f32,
+) -> Element<'a, Message> {
     let header = row![
         text(crate::i18n::tr(lang, "detail.dll_scan.title"))
             .font(font(Weight::Bold))
@@ -85,7 +89,7 @@ pub fn view<'a>(lang: crate::i18n::Lang, dialog: &'a DllScanDialog) -> Element<'
         ]
         .spacing(12)
         .into(),
-        DllScanPhase::Ready(outcome) => ready_body(lang, dialog, outcome),
+        DllScanPhase::Ready(outcome) => ready_body(lang, dialog, outcome, scrollbar_alpha),
     };
 
     // Only the result phase has a variable-length body; it stretches so the
@@ -123,6 +127,7 @@ fn ready_body<'a>(
     lang: crate::i18n::Lang,
     dialog: &'a DllScanDialog,
     outcome: &'a application::DllScanOutcome,
+    scrollbar_alpha: f32,
 ) -> Element<'a, Message> {
     let filtered = dialog.filtered();
     let mut summary = row![
@@ -330,7 +335,8 @@ fn ready_body<'a>(
     let panel = container(
         scrollable(list)
             .height(Length::Fill)
-            .style(styles::scrollable),
+            .style(move |theme, status| styles::scrollable(theme, status, scrollbar_alpha))
+            .on_scroll(|_| Message::ScrollbarActivity),
     )
     .padding(8)
     .width(Length::Fill)

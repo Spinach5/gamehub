@@ -157,6 +157,8 @@ pub enum Message {
     DismissSuccess,
     OpenHomepage,
     HomepageOpened(Result<(), String>),
+    ScrollbarActivity,
+    ScrollbarTick,
 }
 
 #[derive(Debug, Clone)]

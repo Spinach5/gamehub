@@ -392,13 +392,17 @@ pub fn checkbox(theme: &Theme, status: checkbox_widget::Status) -> checkbox_widg
     }
 }
 
-pub fn scrollable(theme: &Theme, _status: scrollable_widget::Status) -> scrollable_widget::Style {
-    let t = tokens(theme);
+fn scrollable_style(
+    rail_background: Color,
+    scroller_color: Color,
+    alpha: f32,
+) -> scrollable_widget::Style {
+    let alpha = alpha.clamp(0.0, 1.0);
     let rail = scrollable_widget::Rail {
-        background: Some(t.surface_alt.into()),
+        background: (alpha > 0.0).then(|| rail_background.scale_alpha(alpha).into()),
         border: Border::default(),
         scroller: scrollable_widget::Scroller {
-            color: t.border_strong,
+            color: scroller_color.scale_alpha(alpha),
             border: Border {
                 radius: 999.0.into(),
                 ..Default::default()
@@ -413,26 +417,32 @@ pub fn scrollable(theme: &Theme, _status: scrollable_widget::Status) -> scrollab
     }
 }
 
-pub fn log_scrollable(
+pub fn scrollable(
     theme: &Theme,
-    _status: scrollable_widget::Status,
+    status: scrollable_widget::Status,
+    alpha: f32,
 ) -> scrollable_widget::Style {
     let t = tokens(theme);
-    let rail = scrollable_widget::Rail {
-        background: Some(t.log_surface.into()),
-        border: Border::default(),
-        scroller: scrollable_widget::Scroller {
-            color: t.log_text.scale_alpha(0.45),
-            border: Border {
-                radius: 999.0.into(),
-                ..Default::default()
-            },
-        },
-    };
-    scrollable_widget::Style {
-        container: container::Style::default(),
-        vertical_rail: rail,
-        horizontal_rail: rail,
-        gap: None,
+    scrollable_style(t.surface_alt, t.border_strong, active_alpha(status, alpha))
+}
+
+pub fn log_scrollable(
+    theme: &Theme,
+    status: scrollable_widget::Status,
+    alpha: f32,
+) -> scrollable_widget::Style {
+    let t = tokens(theme);
+    scrollable_style(
+        t.log_surface,
+        t.log_text.scale_alpha(0.45),
+        active_alpha(status, alpha),
+    )
+}
+
+/// Keeps the scrollbar fully visible while the user is dragging it.
+fn active_alpha(status: scrollable_widget::Status, alpha: f32) -> f32 {
+    match status {
+        scrollable_widget::Status::Dragged { .. } => 1.0,
+        _ => alpha,
     }
 }

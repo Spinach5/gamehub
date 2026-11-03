@@ -70,7 +70,11 @@ impl App {
             ));
         }
         if let Some(dialog) = &self.dll_scan {
-            layers = layers.push(crate::views::dll_scan::view(self.lang, dialog));
+            layers = layers.push(crate::views::dll_scan::view(
+                self.lang,
+                dialog,
+                self.scrollbar_alpha(),
+            ));
         }
         layers.into()
     }

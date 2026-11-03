@@ -80,7 +80,11 @@ pub fn view(app: &App) -> Element<'_, Message> {
             vertical: scrollable::Scrollbar::default(),
             horizontal: scrollable::Scrollbar::default(),
         })
-        .style(styles::log_scrollable)
+        .style({
+            let scrollbar_alpha = app.scrollbar_alpha();
+            move |theme, status| styles::log_scrollable(theme, status, scrollbar_alpha)
+        })
+        .on_scroll(|_| Message::ScrollbarActivity)
         .width(Length::Fill)
         .height(Length::Fill)
         .into()

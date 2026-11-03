@@ -65,7 +65,11 @@ pub fn view(app: &App) -> Element<'_, Message> {
     column![
         header,
         scrollable(body)
-            .style(styles::scrollable)
+            .style({
+                let scrollbar_alpha = app.scrollbar_alpha();
+                move |theme, status| styles::scrollable(theme, status, scrollbar_alpha)
+            })
+            .on_scroll(|_| Message::ScrollbarActivity)
             .height(Length::Fill)
     ]
     .spacing(20)

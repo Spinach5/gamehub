@@ -96,6 +96,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
         .align_y(iced::Alignment::Center),
     );
 
+    let scrollbar_alpha = app.scrollbar_alpha();
     column![
         header,
         scrollable(
@@ -109,7 +110,8 @@ pub fn view(app: &App) -> Element<'_, Message> {
             .spacing(16)
             .width(Length::Fill),
         )
-        .style(styles::scrollable)
+        .style(move |theme, status| styles::scrollable(theme, status, scrollbar_alpha))
+        .on_scroll(|_| Message::ScrollbarActivity)
         .height(Length::Fill),
     ]
     .spacing(20)
@@ -248,7 +250,11 @@ fn font_list(app: &App) -> Element<'_, Message> {
     } else {
         content = content.push(
             scrollable(items)
-                .style(styles::scrollable)
+                .style({
+                    let scrollbar_alpha = app.scrollbar_alpha();
+                    move |theme, status| styles::scrollable(theme, status, scrollbar_alpha)
+                })
+                .on_scroll(|_| Message::ScrollbarActivity)
                 .height(Length::Fixed(240.0)),
         );
     }
