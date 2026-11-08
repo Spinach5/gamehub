@@ -187,6 +187,16 @@ pub fn list_panel(theme: &Theme) -> container::Style {
     }
 }
 
+pub fn tooltip_panel(theme: &Theme) -> container::Style {
+    let t = tokens(theme);
+    container::Style {
+        background: Some(t.surface_alt.into()),
+        border: border(t.border_strong, 1.0, RADIUS_CONTROL),
+        shadow: shadow(t.shadow, 4.0, 12.0),
+        text_color: Some(t.text),
+    }
+}
+
 pub fn segment_track(theme: &Theme) -> container::Style {
     let t = tokens(theme);
     container::Style {

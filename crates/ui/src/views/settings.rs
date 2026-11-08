@@ -387,29 +387,41 @@ fn compatibility_card(app: &App) -> Element<'_, Message> {
         .as_deref()
         .map(|path| middle_truncate(&path.display().to_string(), 56))
         .unwrap_or_else(|| app.tr("common.none").to_owned());
+    let mangohud_tooltip = match &app.mangohud_path {
+        Some(path) => {
+            let detected = middle_truncate(&path.display().to_string(), 56);
+            format!(
+                "{}\n{}",
+                app.tr("settings.mangohud.hint"),
+                app.tr_args("settings.mangohud.detected", &[("path", detected.as_str())])
+            )
+        }
+        None => format!(
+            "{}\n{}",
+            app.tr("settings.mangohud.hint"),
+            app.tr("settings.mangohud.missing")
+        ),
+    };
     let mut content = column![
-        controls::switch_row(
+        controls::switch_row_with_tooltip(
             app.tr("settings.esync"),
             app.tr("settings.esync.hint"),
             app.settings.enable_esync,
             |value| Message::Settings(SettingsAction::EnableEsync(value)),
         ),
-        controls::switch_row(
+        controls::switch_row_with_tooltip(
             app.tr("settings.fsync"),
             app.tr("settings.fsync.hint"),
             app.settings.enable_fsync,
             |value| Message::Settings(SettingsAction::EnableFsync(value)),
         ),
-        controls::switch_row(
+        controls::switch_row_with_tooltip(
             app.tr("settings.mangohud"),
-            match &app.mangohud_path {
-                Some(_) => app.tr("settings.mangohud.hint"),
-                None => app.tr("settings.mangohud.missing"),
-            },
+            mangohud_tooltip,
             app.settings.enable_mangohud,
             |value| Message::Settings(SettingsAction::EnableMangoHud(value)),
         ),
-        controls::switch_row(
+        controls::switch_row_with_tooltip(
             app.tr("settings.dxvk_auto"),
             app.tr("settings.dxvk_auto.hint"),
             app.settings.auto_install_dxvk_nvapi,
@@ -446,19 +458,6 @@ fn compatibility_card(app: &App) -> Element<'_, Message> {
             ]
             .spacing(8)
             .align_y(iced::Alignment::Center),
-        );
-    }
-
-    if let Some(path) = &app.mangohud_path {
-        let detected = middle_truncate(&path.display().to_string(), 56);
-        content = content.push(
-            layout::faint(
-                app.tr_args("settings.mangohud.detected", &[("path", detected.as_str())]),
-            )
-            .size(11)
-            .width(Length::Fill)
-            .height(Length::Fixed(14.0))
-            .wrapping(iced::widget::text::Wrapping::None),
         );
     }
 
