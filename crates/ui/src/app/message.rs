@@ -1,4 +1,4 @@
-use super::{DeleteTarget, PrefixStatus, Screen};
+use super::{DeleteTarget, LibrarySort, PrefixStatus, Screen};
 use crate::theme::ThemeMode;
 use application::Platform;
 use application::editor::{DraftAction, EnvAction};
@@ -11,6 +11,7 @@ use uuid::Uuid;
 #[derive(Debug, Clone)]
 pub enum Message {
     Navigate(Screen),
+    LibrarySortChanged(LibrarySort),
     SelectGame(uuid::Uuid),
     NewGame,
     BeginNewGame(Platform),

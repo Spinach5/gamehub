@@ -1,3 +1,4 @@
+use crate::app::LibrarySort;
 use crate::i18n::{Lang, tr};
 use application::{
     Arch, DisplayBackend, GamescopeMode, MonitorOutput, OverrideMode, Platform, Runner,
@@ -24,6 +25,24 @@ impl<T> fmt::Display for Choice<T> {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(&self.label)
     }
+}
+
+pub fn library_sort_choices(lang: Lang) -> Vec<Choice<LibrarySort>> {
+    vec![
+        Choice::new(LibrarySort::Name, tr(lang, "library.sort.name")),
+        Choice::new(
+            LibrarySort::LastPlayed,
+            tr(lang, "library.sort.last_played"),
+        ),
+        Choice::new(LibrarySort::Added, tr(lang, "library.sort.added")),
+    ]
+}
+
+pub fn library_sort_choice(lang: Lang, value: LibrarySort) -> Choice<LibrarySort> {
+    library_sort_choices(lang)
+        .into_iter()
+        .find(|choice| choice.value == value)
+        .unwrap_or_else(|| Choice::new(LibrarySort::Name, tr(lang, "library.sort.name")))
 }
 
 pub fn platform_choices(lang: Lang) -> Vec<Choice<Platform>> {

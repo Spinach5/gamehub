@@ -57,6 +57,14 @@ pub enum Screen {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum LibrarySort {
+    #[default]
+    Name,
+    LastPlayed,
+    Added,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum NoticeKind {
     #[default]
     General,
@@ -312,6 +320,7 @@ pub struct App {
     pub fatal: Option<String>,
     pub screen: Screen,
     pub games: Vec<Game>,
+    pub library_sort: LibrarySort,
     pub runners: Vec<Runner>,
     pub settings: SettingsState,
     pub theme_saving: bool,
@@ -371,6 +380,7 @@ impl App {
             fatal: None,
             screen: Screen::Library,
             games: Vec::new(),
+            library_sort: LibrarySort::default(),
             runners: Vec::new(),
             settings,
             theme_saving: false,
@@ -889,7 +899,17 @@ impl App {
     }
 
     fn sort_games(&mut self) {
-        self.games.sort_by_key(|game| game.name.to_lowercase());
+        let sort = self.library_sort;
+        self.games.sort_by(|a, b| {
+            let by_name = || a.name.to_lowercase().cmp(&b.name.to_lowercase());
+            match sort {
+                LibrarySort::Name => by_name(),
+                LibrarySort::LastPlayed => {
+                    b.last_played_at.cmp(&a.last_played_at).then_with(by_name)
+                }
+                LibrarySort::Added => b.created_at.cmp(&a.created_at).then_with(by_name),
+            }
+        });
     }
 
     pub fn theme(&self) -> iced::Theme {
@@ -1058,6 +1078,60 @@ mod tests {
         app.settings.language = LanguagePref::Fixed(&crate::i18n::ZH_CN);
         app.lang = &crate::i18n::ZH_CN;
         app
+    }
+
+    fn game(name: &str, created_at: i64, last_played_at: Option<i64>) -> Game {
+        Game {
+            id: Uuid::new_v4(),
+            name: name.to_owned(),
+            executable_path: PathBuf::from("/tmp/game"),
+            working_dir: None,
+            runner_id: None,
+            prefix_path: None,
+            cover_path: None,
+            platform: Platform::Windows,
+            arch: application::Arch::Win64,
+            display: Default::default(),
+            env_overrides: Default::default(),
+            dll_overrides: Vec::new(),
+            args: Vec::new(),
+            created_at,
+            last_played_at,
+            playtime_seconds: 0,
+        }
+    }
+
+    fn sorted_names(sort: LibrarySort, games: Vec<Game>) -> Vec<String> {
+        let mut app = app();
+        app.games = games;
+        app.library_sort = sort;
+        app.sort_games();
+        app.games.into_iter().map(|game| game.name).collect()
+    }
+
+    #[test]
+    fn library_sort_orders_by_name_last_played_and_added() {
+        let games = || {
+            vec![
+                game("beta", 100, Some(50)),
+                game("Alpha", 300, None),
+                game("gamma", 200, Some(900)),
+                game("delta", 400, Some(50)),
+            ]
+        };
+
+        assert_eq!(
+            sorted_names(LibrarySort::Name, games()),
+            ["Alpha", "beta", "delta", "gamma"]
+        );
+        assert_eq!(
+            sorted_names(LibrarySort::LastPlayed, games()),
+            ["gamma", "beta", "delta", "Alpha"]
+        );
+        assert_eq!(
+            sorted_names(LibrarySort::Added, games()),
+            ["delta", "Alpha", "gamma", "beta"]
+        );
     }
 
     #[test]

@@ -3,7 +3,7 @@ use crate::theme::{font, tokens};
 use crate::widgets::{Tone, badges, controls, cover, layout, truncate};
 use application::Game;
 use iced::font::Weight;
-use iced::widget::{column, container, row, scrollable, stack, text};
+use iced::widget::{column, container, pick_list, row, scrollable, stack, text};
 use iced::{Element, Length};
 
 pub fn view(app: &App) -> Element<'_, Message> {
@@ -69,8 +69,22 @@ pub fn view(app: &App) -> Element<'_, Message> {
                     .style(|theme| iced::widget::text::Style {
                         color: Some(tokens(theme).text_faint),
                     }),
+                iced::widget::horizontal_space(),
+                layout::faint(app.tr("library.sort.label")).size(11),
+                pick_list(
+                    crate::widgets::library_sort_choices(app.lang),
+                    Some(crate::widgets::library_sort_choice(
+                        app.lang,
+                        app.library_sort
+                    )),
+                    |choice| Message::LibrarySortChanged(choice.value),
+                )
+                .font(font(Weight::Normal))
+                .style(crate::styles::pick_list)
+                .menu_style(crate::styles::menu),
             ]
             .spacing(8)
+            .width(Length::Fill)
             .align_y(iced::Alignment::Center),
         );
         content = content.push(grid(app));
@@ -128,7 +142,8 @@ fn hero<'a>(app: &'a App, game: &'a Game) -> Element<'a, Message> {
 }
 
 fn grid(app: &App) -> Element<'_, Message> {
-    let (columns, card_width, cover_width, cover_height) = grid_metrics(app.window_width);
+    let (columns, card_width, cover_width, cover_height) =
+        grid_metrics(app.window_width, app.games.len());
 
     let mut rows = column![].spacing(CARD_GAP);
     for chunk in app.games.chunks(columns) {
@@ -267,21 +282,34 @@ fn runner_label(app: &App, game: &Game) -> String {
 
 const SIDEBAR_WIDTH: f32 = 200.0;
 const CONTENT_PADDING: f32 = 48.0;
+const SCROLLBAR_RESERVE: f32 = 12.0;
 const CARD_GAP: f32 = 16.0;
 const CARD_MAX_WIDTH: f32 = 240.0;
+const CARD_STRETCH_MAX_WIDTH: f32 = 320.0;
 const CARD_PADDING: f32 = 10.0;
 const MIN_GRID_WIDTH: f32 = 360.0;
-const FOUR_COLUMN_MIN: f32 = 840.0;
 
-fn grid_metrics(window_width: f32) -> (usize, f32, f32, f32) {
-    let content_width = (window_width - SIDEBAR_WIDTH - CONTENT_PADDING).max(MIN_GRID_WIDTH);
-    let columns = if content_width >= FOUR_COLUMN_MIN {
-        4
+fn grid_content_width(window_width: f32) -> f32 {
+    (window_width - SIDEBAR_WIDTH - CONTENT_PADDING - SCROLLBAR_RESERVE).max(MIN_GRID_WIDTH)
+}
+
+/// Picks the smallest column count that keeps every card at or below
+/// `CARD_MAX_WIDTH`, then stretches the cards to fill the row. Wide windows
+/// therefore gain extra columns instead of leaving a blank strip on the right.
+/// When the library has fewer games than those columns, the cards grow further
+/// (within `CARD_STRETCH_MAX_WIDTH`) so a short row still fills the width.
+fn grid_metrics(window_width: f32, game_count: usize) -> (usize, f32, f32, f32) {
+    let content_width = grid_content_width(window_width);
+    let ideal_columns = ((content_width + CARD_GAP) / (CARD_MAX_WIDTH + CARD_GAP))
+        .ceil()
+        .max(1.0) as usize;
+    let columns = ideal_columns.min(game_count.max(1));
+    let fill_width = (content_width - CARD_GAP * (columns as f32 - 1.0)) / columns as f32;
+    let card_width = fill_width.min(if columns < ideal_columns {
+        CARD_STRETCH_MAX_WIDTH
     } else {
-        3
-    };
-    let card_width =
-        ((content_width - CARD_GAP * (columns as f32 - 1.0)) / columns as f32).min(CARD_MAX_WIDTH);
+        CARD_MAX_WIDTH
+    });
     let cover_width = card_width - CARD_PADDING * 2.0;
     let cover_height = cover_width * 4.0 / 3.0;
     (columns, card_width, cover_width, cover_height)
@@ -303,23 +331,74 @@ mod tests {
 
     #[test]
     fn grid_uses_three_columns_at_min_window() {
-        assert_eq!(grid_metrics(900.0).0, 3);
+        assert_eq!(grid_metrics(900.0, 20).0, 3);
     }
 
     #[test]
     fn grid_uses_four_columns_at_default_window() {
-        assert_eq!(grid_metrics(1180.0).0, 4);
+        assert_eq!(grid_metrics(1180.0, 20).0, 4);
     }
 
     #[test]
     fn grid_uses_four_columns_at_design_threshold() {
-        assert_eq!(grid_metrics(1100.0).0, 4);
+        assert_eq!(grid_metrics(1100.0, 20).0, 4);
     }
 
     #[test]
-    fn grid_caps_card_width_on_wide_windows() {
-        let (_, card_width, _, _) = grid_metrics(2000.0);
-        assert_eq!(card_width, CARD_MAX_WIDTH);
+    fn grid_adds_columns_on_wide_windows() {
+        let mut previous = 0;
+        for width in [900.0, 1100.0, 1180.0, 1600.0, 1920.0, 2560.0, 3440.0] {
+            let columns = grid_metrics(width, 100).0;
+            assert!(
+                columns >= previous && columns > 0,
+                "columns must grow with window width ({width})"
+            );
+            previous = columns;
+        }
+        assert!(grid_metrics(2560.0, 100).0 > grid_metrics(1180.0, 100).0);
+        assert_eq!(grid_metrics(1920.0, 100).0, 7);
+    }
+
+    #[test]
+    fn grid_keeps_cards_at_or_below_max_width() {
+        for width in [900.0, 1100.0, 1180.0, 1920.0, 2560.0, 3440.0, 5120.0] {
+            let (_, card_width, _, _) = grid_metrics(width, 100);
+            assert!(
+                card_width > 0.0 && card_width <= CARD_MAX_WIDTH,
+                "card width {card_width} out of range at {width}"
+            );
+        }
+    }
+
+    #[test]
+    fn grid_rows_fill_the_content_width() {
+        for width in [
+            900.0, 1100.0, 1180.0, 1600.0, 1920.0, 2000.0, 2560.0, 3440.0,
+        ] {
+            let (columns, card_width, _, _) = grid_metrics(width, 100);
+            let content_width = grid_content_width(width);
+            let used = card_width * columns as f32 + CARD_GAP * (columns as f32 - 1.0);
+            assert!(
+                (used - content_width).abs() < 0.01,
+                "row uses {used}px of {content_width}px at {width}"
+            );
+        }
+    }
+
+    #[test]
+    fn grid_stretches_cards_when_there_are_few_games() {
+        let (columns, card_width, _, _) = grid_metrics(1920.0, 5);
+        let content_width = grid_content_width(1920.0);
+        let used = card_width * columns as f32 + CARD_GAP * (columns as f32 - 1.0);
+        assert_eq!(columns, 5);
+        assert!(card_width > CARD_MAX_WIDTH && card_width <= CARD_STRETCH_MAX_WIDTH);
+        assert!((used - content_width).abs() < 0.01);
+    }
+
+    #[test]
+    fn grid_caps_stretch_for_tiny_libraries() {
+        let (_, card_width, _, _) = grid_metrics(1920.0, 2);
+        assert_eq!(card_width, CARD_STRETCH_MAX_WIDTH);
     }
 
     #[test]

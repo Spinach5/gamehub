@@ -14,6 +14,11 @@ impl App {
                 self.screen = screen;
                 Task::none()
             }
+            Message::LibrarySortChanged(sort) => {
+                self.library_sort = sort;
+                self.sort_games();
+                Task::none()
+            }
             Message::SelectGame(id) => {
                 self.selected_game = Some(id);
                 self.draft = self
@@ -1095,6 +1100,8 @@ impl App {
                                 draft.last_played_at = Some(started_at);
                             }
                         }
+                        // Keep the "recently played" order live while playing.
+                        self.sort_games();
                     }
                     LaunchEvent::Finished { game_id, outcome } => {
                         self.starting.remove(&game_id);
