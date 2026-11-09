@@ -19,6 +19,10 @@ impl App {
                 self.sort_games();
                 Task::none()
             }
+            Message::LibrarySearchChanged(query) => {
+                self.library_search = query;
+                Task::none()
+            }
             Message::SelectGame(id) => {
                 self.selected_game = Some(id);
                 self.draft = self

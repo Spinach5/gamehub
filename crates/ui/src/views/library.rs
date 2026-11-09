@@ -3,7 +3,7 @@ use crate::theme::{font, tokens};
 use crate::widgets::{Tone, badges, controls, cover, layout, truncate};
 use application::Game;
 use iced::font::Weight;
-use iced::widget::{column, container, pick_list, row, scrollable, stack, text};
+use iced::widget::{column, container, pick_list, row, scrollable, stack, text, text_input};
 use iced::{Element, Length};
 
 pub fn view(app: &App) -> Element<'_, Message> {
@@ -58,18 +58,33 @@ pub fn view(app: &App) -> Element<'_, Message> {
             ));
         }
     } else {
+        let query = app.library_search.trim();
+        let visible: Vec<&Game> = app
+            .games
+            .iter()
+            .filter(|game| matches_query(&game.name, query))
+            .collect();
+
         content = content.push(
             row![
                 text(app.tr("library.all_games"))
                     .font(font(Weight::Bold))
                     .size(16),
-                text(app.games.len().to_string())
+                text(visible.len().to_string())
                     .size(12)
                     .font(font(Weight::Normal))
                     .style(|theme| iced::widget::text::Style {
                         color: Some(tokens(theme).text_faint),
                     }),
                 iced::widget::horizontal_space(),
+                text_input(
+                    app.tr("library.search.placeholder"),
+                    app.library_search.as_str()
+                )
+                .on_input(Message::LibrarySearchChanged)
+                .font(font(Weight::Normal))
+                .style(crate::styles::text_input)
+                .width(Length::Fixed(200.0)),
                 layout::faint(app.tr("library.sort.label")).size(11),
                 pick_list(
                     crate::widgets::library_sort_choices(app.lang),
@@ -87,7 +102,16 @@ pub fn view(app: &App) -> Element<'_, Message> {
             .width(Length::Fill)
             .align_y(iced::Alignment::Center),
         );
-        content = content.push(grid(app));
+
+        if visible.is_empty() {
+            content = content.push(layout::empty_state(
+                app.tr("library.search.empty.title"),
+                app.tr("library.search.empty.body"),
+                None,
+            ));
+        } else {
+            content = content.push(grid(app, &visible));
+        }
     }
 
     let scrollbar_alpha = app.scrollbar_alpha();
@@ -141,12 +165,12 @@ fn hero<'a>(app: &'a App, game: &'a Game) -> Element<'a, Message> {
     .into()
 }
 
-fn grid(app: &App) -> Element<'_, Message> {
+fn grid<'a>(app: &'a App, games: &[&'a Game]) -> Element<'a, Message> {
     let (columns, card_width, cover_width, cover_height) =
-        grid_metrics(app.window_width, app.games.len());
+        grid_metrics(app.window_width, games.len());
 
     let mut rows = column![].spacing(CARD_GAP);
-    for chunk in app.games.chunks(columns) {
+    for chunk in games.chunks(columns) {
         let mut line = row![].spacing(CARD_GAP).align_y(iced::Alignment::Start);
         for game in chunk {
             line = line.push(game_card(app, game, card_width, cover_width, cover_height));
@@ -154,6 +178,10 @@ fn grid(app: &App) -> Element<'_, Message> {
         rows = rows.push(line);
     }
     rows.into()
+}
+
+fn matches_query(name: &str, query: &str) -> bool {
+    query.is_empty() || name.to_lowercase().contains(&query.to_lowercase())
 }
 
 fn game_card<'a>(
@@ -399,6 +427,14 @@ mod tests {
     fn grid_caps_stretch_for_tiny_libraries() {
         let (_, card_width, _, _) = grid_metrics(1920.0, 2);
         assert_eq!(card_width, CARD_STRETCH_MAX_WIDTH);
+    }
+
+    #[test]
+    fn search_matches_names_case_insensitively() {
+        assert!(matches_query("Half-Life 2", "half"));
+        assert!(matches_query("Half-Life 2", "LIFE"));
+        assert!(!matches_query("Half-Life 2", "portal"));
+        assert!(matches_query("Anything", ""));
     }
 
     #[test]

@@ -12,6 +12,7 @@ use uuid::Uuid;
 pub enum Message {
     Navigate(Screen),
     LibrarySortChanged(LibrarySort),
+    LibrarySearchChanged(String),
     SelectGame(uuid::Uuid),
     NewGame,
     BeginNewGame(Platform),
