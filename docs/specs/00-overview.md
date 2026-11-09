@@ -8,7 +8,7 @@
 
 **Architecture:** Cargo workspace + 8 个 crate。`launcher-core` 只放纯类型、枚举映射、路径计算与日志初始化；`storage` 负责 SQLite；`runner-wine`、`prefix`、`display`、`launch` 各自封装一个职责；`application` 聚合这些能力，提供用例级 API 与统一错误；`ui` 是唯一的 Iced 二进制入口，只做状态机与视图。依赖方向单向，禁止环。
 
-**Tech Stack:** Rust stable / edition 2024（MSRV 1.85）、Iced 0.13.1（`tokio`、`advanced`、`image-without-codecs`、`svg`）、tokio 1.54、rusqlite 0.41（bundled）、rfd 0.17.2、serde/serde_json、thiserror 2、tracing、uuid v4、chrono（仅用于时间显示）、image 0.24（封面解码）、nix 0.29（信号）、zbus 4.4（GNOME Mutter 主屏切换）。workspace 版本 0.12.4。
+**Tech Stack:** Rust stable / edition 2024（MSRV 1.85）、Iced 0.13.1（`tokio`、`advanced`、`image-without-codecs`、`svg`）、tokio 1.54、rusqlite 0.41（bundled）、rfd 0.17.2、serde/serde_json、thiserror 2、tracing、uuid v4、chrono（仅用于时间显示）、image 0.24（封面解码）、nix 0.29（信号）、zbus 4.4（GNOME Mutter 主屏切换）。workspace 版本 0.13.0。
 
 ---
 
@@ -135,7 +135,7 @@ resolver = "3"
 members = ["crates/*"]
 
 [workspace.package]
-version = "0.12.4"
+version = "0.13.0"
 edition = "2024"
 rust-version = "1.85"
 
